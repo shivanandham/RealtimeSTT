@@ -403,10 +403,10 @@ def parse_arguments():
     import argparse
     parser = argparse.ArgumentParser(description='Start the Speech-to-Text (STT) server with various configuration options.')
 
-    parser.add_argument('-m', '--model', type=str, default='large-v2',
-                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, or any huggingface CTranslate2 STT model such as deepdml/faster-whisper-large-v3-turbo-ct2. Default is large-v2.')
+    parser.add_argument('-m', '--model', type=str, default='small',
+                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, or any huggingface CTranslate2 STT model such as deepdml/faster-whisper-large-v3-turbo-ct2. Default is small (CPU-friendly).')
 
-    parser.add_argument('-r', '--rt-model', '--realtime_model_type', type=str, default='tiny',
+    parser.add_argument('-r', '--rt-model', '--realtime_model_type', type=str, default='tiny.en',
                         help='Model size for real-time transcription. Options same as --model.  This is used only if real-time transcription is enabled (enable_realtime_transcription). Default is tiny.en.')
     
     parser.add_argument('-l', '--lang', '--language', type=str, default='en',
@@ -521,14 +521,14 @@ def parse_arguments():
     parser.add_argument('--use_extended_logging', action='store_true',
                         help='Writes extensive log messages for the recording worker, that processes the audio chunks.')
 
-    parser.add_argument('--compute_type', type=str, default='default',
-                        help='Type of computation to use. See https://opennmt.net/CTranslate2/quantization.html')
+    parser.add_argument('--compute_type', type=str, default='int8',
+                        help='Type of computation to use. See https://opennmt.net/CTranslate2/quantization.html. Default is int8 (CPU-friendly).')
 
     parser.add_argument('--gpu_device_index', type=int, default=0,
                         help='Index of the GPU device to use. Default is None.')
     
-    parser.add_argument('--device', type=str, default='cuda',
-                        help='Device for model to use. Can either be "cuda" or "cpu". Default is cuda.')
+    parser.add_argument('--device', type=str, default='cpu',
+                        help='Device for model to use. Can either be "cuda" or "cpu". Default is cpu.')
     
     parser.add_argument('--handle_buffer_overflow', action='store_true',
                         help='Handle buffer overflow during transcription. Default is False.')
@@ -538,8 +538,10 @@ def parse_arguments():
     parser.add_argument('--allowed_latency_limit', type=int, default=100,
                         help='Maximal amount of chunks that can be unprocessed in queue before discarding chunks.. Default is 100.')
 
-    parser.add_argument('--faster_whisper_vad_filter', action='store_true',
-                        help='Enable VAD filter for Faster Whisper. Default is False.')
+    parser.add_argument('--faster_whisper_vad_filter', action=argparse.BooleanOptionalAction, default=True,
+                        help='Enable VAD filter for Faster Whisper. Default is True. '
+                             'Required by faster-whisper\'s batched pipeline; disable with '
+                             '--no-faster_whisper_vad_filter.')
 
     parser.add_argument('--logchunks', action='store_true', help='Enable logging of incoming audio chunks (periods)')
 
