@@ -90,6 +90,7 @@ def build_recorder_init_args(
     silero_onnx_model_path,
     silero_onnx_threads,
     deactivity_silence_confirmation_duration,
+    pulse_source=None,
 ):
     """
     Returns the legacy constructor argument mapping in signature order.
@@ -192,4 +193,5 @@ def build_recorder_init_args(
         "deactivity_silence_confirmation_duration": (
             deactivity_silence_confirmation_duration
         ),
+        "pulse_source": pulse_source,
     }

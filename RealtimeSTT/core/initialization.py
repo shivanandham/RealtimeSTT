@@ -24,7 +24,7 @@ from ..transcription_engines import (
 from .silero_vad import create_silero_vad_model
 from .safepipe import SafePipe
 from .wakeword import OPENWAKEWORD_BACKENDS, setup_wakeword_detection
-from .audio_input_worker import run_audio_data_worker
+from .audio_input_worker import make_input_device_info, run_audio_data_worker
 from .runtime import read_stdout_pipe, start_recorder_worker
 from .transcription import run_transcription_worker
 from .voice_activity import warmup_voice_activity_detectors
@@ -91,6 +91,8 @@ def _assign_initial_attributes(recorder, init_args, normalize_wakeword_backend):
     recorder.language = init_args["language"]
     recorder.compute_type = init_args["compute_type"]
     recorder.input_device_index = init_args["input_device_index"]
+    recorder.pulse_source = init_args.get("pulse_source")
+    recorder.input_device_info_shared = make_input_device_info()
     recorder.gpu_device_index = init_args["gpu_device_index"]
     recorder.device = init_args["device"]
     recorder.wake_words = init_args["wake_words"]
@@ -439,7 +441,9 @@ def _start_audio_reader(recorder, recorder_cls):
                 recorder.input_device_index,
                 recorder.shutdown_event,
                 recorder.interrupt_stop_event,
-                recorder.use_microphone
+                recorder.use_microphone,
+                recorder.pulse_source,
+                recorder.input_device_info_shared,
             )
         )
 

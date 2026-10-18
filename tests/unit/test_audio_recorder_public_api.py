@@ -177,6 +177,7 @@ class AudioRecorderPublicApiTests(unittest.TestCase):
                 audio_recorder.DEACTIVITY_SILENCE_CONFIRMATION_DURATION,
                 float,
             ),
+            ("pulse_source", None, Optional[str]),
         ]
 
         self.assertEqual(list(signature.parameters), [item[0] for item in expected])

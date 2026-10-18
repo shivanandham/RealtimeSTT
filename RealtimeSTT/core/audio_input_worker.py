@@ -3,12 +3,146 @@ Audio input worker for microphone capture.
 """
 
 import logging
+import multiprocessing
+import os
 import signal as system_signal
+import threading
 import time
 import traceback
+from contextlib import contextmanager
 
 
 logger = logging.getLogger("realtimestt")
+
+# Capture workers in one process (several recorders / channels) take turns for
+# PortAudio setup: Pa_Initialize and device probing are not thread-safe, and
+# PULSE_SOURCE is process-wide and read when the ALSA "pulse" device is opened.
+# Held only around init, probing and each open attempt, never across retry sleeps.
+_portaudio_lock = threading.RLock()
+
+
+@contextmanager
+def _pulse_source_env(pulse_source):
+    """
+    Points PulseAudio at the given source while a stream is opened.
+    """
+    if not pulse_source:
+        yield
+        return
+    previous = os.environ.get("PULSE_SOURCE")
+    os.environ["PULSE_SOURCE"] = pulse_source
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("PULSE_SOURCE", None)
+        else:
+            os.environ["PULSE_SOURCE"] = previous
+
+
+def make_input_device_info():
+    """
+    Creates the shared slots the capture worker fills with the opened device.
+    """
+    return {
+        "index": multiprocessing.Value("i", -1),
+        "sample_rate": multiprocessing.Value("i", 0),
+        "name": multiprocessing.Array("c", 256),
+    }
+
+
+def read_input_device_info(info):
+    """
+    Returns the opened input device as a dict, or None before the stream opens.
+    """
+    if info is None or info["index"].value < 0:
+        return None
+    return {
+        "index": info["index"].value,
+        "name": bytes(info["name"].value).decode("utf-8", "replace"),
+        "sample_rate": info["sample_rate"].value,
+    }
+
+
+def list_input_devices(audio_interface=None):
+    """
+    Returns the input-capable PortAudio devices as dicts (index, name, ...).
+
+    Indices are only meaningful inside the process that enumerated them, so
+    callers that pick a device in another process should select by name.
+    """
+    import pyaudio
+
+    with _portaudio_lock:
+        owned = audio_interface is None
+        if owned:
+            audio_interface = pyaudio.PyAudio()
+        try:
+            devices = []
+            for index in range(audio_interface.get_device_count()):
+                try:
+                    info = audio_interface.get_device_info_by_index(index)
+                except Exception:
+                    continue
+                if info.get("maxInputChannels", 0) > 0:
+                    devices.append({
+                        "index": index,
+                        "name": str(info.get("name", "")),
+                        "max_input_channels": int(info.get("maxInputChannels", 0)),
+                        "default_sample_rate": int(info.get("defaultSampleRate", 0)),
+                    })
+            return devices
+        finally:
+            if owned:
+                audio_interface.terminate()
+
+
+def list_pulse_sources():
+    """
+    Returns PulseAudio/PipeWire sources (microphones and output monitors) via pactl, or [].
+
+    Any of these names works as pulse_source; "@DEFAULT_SOURCE@" and
+    "@DEFAULT_MONITOR@" follow the system defaults.
+    """
+    import json
+    import subprocess
+
+    try:
+        output = subprocess.run(
+            ["pactl", "-f", "json", "list", "sources"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout
+        sources = json.loads(output)
+    except Exception:
+        return []
+    return [
+        {
+            "name": source["name"],
+            "description": source.get("description") or source["name"],
+            "monitor": source["name"].endswith(".monitor"),
+        }
+        for source in sources
+        if isinstance(source, dict) and source.get("name")
+    ]
+
+
+def _find_input_device_by_name(audio_interface, names, substring=False):
+    """
+    Returns the index of the first input device whose name matches, or None.
+
+    Exact matches win; with substring=True a case-insensitive substring match
+    is accepted as a fallback.
+    """
+    devices = list_input_devices(audio_interface)
+    for name in names:
+        for device in devices:
+            if device["name"] == name:
+                return device["index"]
+        if substring:
+            for device in devices:
+                if name.lower() in device["name"].lower():
+                    return device["index"]
+    return None
 
 
 def run_audio_data_worker(
@@ -18,7 +152,9 @@ def run_audio_data_worker(
     input_device_index,
     shutdown_event,
     interrupt_stop_event,
-    use_microphone
+    use_microphone,
+    pulse_source=None,
+    input_device_info=None,
 ):
     """
     Captures microphone audio and queues complete recorder chunks.
@@ -30,10 +166,14 @@ def run_audio_data_worker(
     - audio_queue: Queue receiving processed audio bytes.
     - target_sample_rate: Output sample rate expected by downstream VAD.
     - buffer_size: Number of samples expected by the Silero VAD model.
-    - input_device_index: Optional input device index.
+    - input_device_index: Optional input device index, or a device name
+        (exact or case-insensitive substring) resolved in this process.
     - shutdown_event: Event that stops the worker.
     - interrupt_stop_event: Event set on keyboard interruption.
     - use_microphone: Shared flag controlling microphone reads.
+    - pulse_source: Optional PulseAudio source opened through the "pulse" device.
+    - input_device_info: Optional slots from make_input_device_info() that
+        receive the device actually opened.
     """
     import pyaudio
     import numpy as np
@@ -107,56 +247,62 @@ def run_audio_data_worker(
 
         while not shutdown_event.is_set():
             try:
-                input_devices = []
-                device_count = audio_interface.get_device_count()
-                logger.debug(f"Found {device_count} total audio devices on the system.")
-                for i in range(device_count):
-                    try:
-                        device_info = audio_interface.get_device_info_by_index(i)
-                        if device_info.get('maxInputChannels', 0) > 0:
-                            input_devices.append(i)
-                    except Exception as e:
-                        logger.debug(f"Could not retrieve info for device index {i}: {e}")
-                        continue
+                with _portaudio_lock, _pulse_source_env(pulse_source):
+                    input_devices = []
+                    device_count = audio_interface.get_device_count()
+                    logger.debug(f"Found {device_count} total audio devices on the system.")
+                    for i in range(device_count):
+                        try:
+                            device_info = audio_interface.get_device_info_by_index(i)
+                            if device_info.get('maxInputChannels', 0) > 0:
+                                input_devices.append(i)
+                        except Exception as e:
+                            logger.debug(f"Could not retrieve info for device index {i}: {e}")
+                            continue
 
-                logger.debug(f"Available input devices with input channels: {input_devices}")
-                if not input_devices:
-                    raise Exception("No input devices found")
+                    logger.debug(f"Available input devices with input channels: {input_devices}")
+                    if not input_devices:
+                        raise Exception("No input devices found")
 
-                if input_device_index is None or input_device_index not in input_devices:
-                    try:
-                        default_device = audio_interface.get_default_input_device_info()
-                        logger.debug(f"Default device info: {default_device}")
-                        if validate_device(default_device['index']):
-                            input_device_index = default_device['index']
-                            logger.debug(f"Default device {input_device_index} selected.")
-                    except Exception:
-                        logger.debug("Default device validation failed, checking other devices...")
-                        for device_index in input_devices:
-                            if validate_device(device_index):
-                                input_device_index = device_index
-                                logger.debug(f"Device {input_device_index} selected.")
-                                break
-                        else:
-                            raise Exception("No working input devices found")
+                    if input_device_index is None or input_device_index not in input_devices:
+                        try:
+                            default_device = audio_interface.get_default_input_device_info()
+                            logger.debug(f"Default device info: {default_device}")
+                            if validate_device(default_device['index']):
+                                input_device_index = default_device['index']
+                                logger.debug(f"Default device {input_device_index} selected.")
+                        except Exception:
+                            logger.debug("Default device validation failed, checking other devices...")
+                            for device_index in input_devices:
+                                if validate_device(device_index):
+                                    input_device_index = device_index
+                                    logger.debug(f"Device {input_device_index} selected.")
+                                    break
+                            else:
+                                raise Exception("No working input devices found")
 
-                if not validate_device(input_device_index):
-                    raise Exception("Selected device validation failed")
+                    if not validate_device(input_device_index):
+                        raise Exception("Selected device validation failed")
 
-                logger.debug(f"Opening stream with device index {input_device_index}, "
-                            f"sample_rate={sample_rate}, chunk_size={chunk_size}")
-                stream = audio_interface.open(
-                    format=pyaudio.paInt16,
-                    channels=1,
-                    rate=sample_rate,
-                    input=True,
-                    frames_per_buffer=chunk_size,
-                    input_device_index=input_device_index,
-                )
+                    logger.debug(f"Opening stream with device index {input_device_index}, "
+                                f"sample_rate={sample_rate}, chunk_size={chunk_size}")
+                    stream = audio_interface.open(
+                        format=pyaudio.paInt16,
+                        channels=1,
+                        rate=sample_rate,
+                        input=True,
+                        frames_per_buffer=chunk_size,
+                        input_device_index=input_device_index,
+                    )
 
-                logger.info(f"Microphone connected and validated (device index: {input_device_index}, "
-                            f"sample rate: {sample_rate}, chunk size: {chunk_size})")
-                return stream
+                    logger.info(f"Microphone connected and validated (device index: {input_device_index}, "
+                                f"sample rate: {sample_rate}, chunk size: {chunk_size})")
+                    if input_device_info is not None:
+                        name = str(audio_interface.get_device_info_by_index(input_device_index).get("name", ""))
+                        input_device_info["name"].value = name.encode("utf-8")[:255]
+                        input_device_info["sample_rate"].value = int(sample_rate)
+                        input_device_info["index"].value = int(input_device_index)
+                    return stream
 
             except Exception as e:
                 logger.error(f"Microphone connection failed: {e}. Retrying...", exc_info=True)
@@ -200,46 +346,63 @@ def run_audio_data_worker(
         """
         nonlocal audio_interface, stream, device_sample_rate, input_device_index
         try:
-            if audio_interface is None:
-                logger.debug("Creating PyAudio interface...")
-                audio_interface = pyaudio.PyAudio()
+            with _portaudio_lock:
+                if audio_interface is None:
+                    logger.debug("Creating PyAudio interface...")
+                    audio_interface = pyaudio.PyAudio()
 
-            if input_device_index is None:
-                try:
-                    default_device = audio_interface.get_default_input_device_info()
-                    input_device_index = default_device['index']
-                    logger.debug(f"No device index supplied; using default device {input_device_index}")
-                except OSError as e:
-                    logger.debug(f"Default device retrieval failed: {e}")
-                    input_device_index = None
+                if isinstance(input_device_index, str):
+                    # Indices shift between processes; names are stable. A missing name
+                    # falls back to the default input like a missing index does.
+                    requested_name = input_device_index
+                    input_device_index = _find_input_device_by_name(audio_interface, (requested_name,), substring=True)
+                    if input_device_index is None:
+                        logger.warning(f"No input device matching {requested_name!r}; using the default input")
+                    else:
+                        logger.debug(f"Input device {requested_name!r} resolved to index {input_device_index}")
 
-            # Prefer the VAD-native rate, then fall back to device-supported rates.
-            sample_rates_to_try = [16000]
-            if input_device_index is not None:
-                highest_rate = get_highest_sample_rate(audio_interface, input_device_index)
-                if highest_rate != 16000:
-                    sample_rates_to_try.append(highest_rate)
-            else:
-                sample_rates_to_try.append(48000)
+                if input_device_index is None and pulse_source:
+                    input_device_index = _find_input_device_by_name(audio_interface, ("pulse", "default"))
+                    logger.debug(f"PulseAudio source {pulse_source!r}; using device {input_device_index}")
+                    if input_device_index is None:
+                        raise Exception("No PulseAudio/PipeWire input device ('pulse' or 'default') found")
 
-            # Skip rates the device rejects; otherwise validation fails at 16 kHz and the
-            # stream silently falls back to the default device instead of resampling.
-            if input_device_index is not None:
-                def rate_supported(rate):
+                if input_device_index is None:
                     try:
-                        return audio_interface.is_format_supported(
-                            rate,
-                            input_device=input_device_index,
-                            input_channels=1,
-                            input_format=pyaudio.paInt16,
-                        )
-                    except ValueError:
-                        return False
+                        default_device = audio_interface.get_default_input_device_info()
+                        input_device_index = default_device['index']
+                        logger.debug(f"No device index supplied; using default device {input_device_index}")
+                    except OSError as e:
+                        logger.debug(f"Default device retrieval failed: {e}")
+                        input_device_index = None
 
-                sample_rates_to_try = (
-                    [rate for rate in sample_rates_to_try if rate_supported(rate)]
-                    or sample_rates_to_try
-                )
+                # Prefer the VAD-native rate, then fall back to device-supported rates.
+                sample_rates_to_try = [16000]
+                if input_device_index is not None:
+                    highest_rate = get_highest_sample_rate(audio_interface, input_device_index)
+                    if highest_rate != 16000:
+                        sample_rates_to_try.append(highest_rate)
+                else:
+                    sample_rates_to_try.append(48000)
+
+                # Skip rates the device rejects; otherwise validation fails at 16 kHz and the
+                # stream silently falls back to the default device instead of resampling.
+                if input_device_index is not None:
+                    def rate_supported(rate):
+                        try:
+                            return audio_interface.is_format_supported(
+                                rate,
+                                input_device=input_device_index,
+                                input_channels=1,
+                                input_format=pyaudio.paInt16,
+                            )
+                        except ValueError:
+                            return False
+
+                    sample_rates_to_try = (
+                        [rate for rate in sample_rates_to_try if rate_supported(rate)]
+                        or sample_rates_to_try
+                    )
 
             logger.debug(f"Sample rates to try for device {input_device_index}: {sample_rates_to_try}")
 

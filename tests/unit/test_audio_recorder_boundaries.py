@@ -187,6 +187,8 @@ class AudioRecorderBoundaryTests(unittest.TestCase):
             shutdown_event = object()
             interrupt_stop_event = object()
             use_microphone = UseMicrophone()
+            pulse_source = "alsa_output.example.monitor"
+            input_device_info_shared = object()
 
         recorder = Recorder()
 
@@ -213,6 +215,8 @@ class AudioRecorderBoundaryTests(unittest.TestCase):
                 recorder.shutdown_event,
                 recorder.interrupt_stop_event,
                 recorder.use_microphone,
+                recorder.pulse_source,
+                recorder.input_device_info_shared,
             ),
         )
 

@@ -11,6 +11,7 @@ import platform
 from typing import Callable, Iterable, List, Optional, Union
 
 # Internal imports.
+from .core.audio_input_worker import read_input_device_info
 from .core.initialization import initialize_recorder
 from .core.recorder_config import build_recorder_init_args
 from .core.lifecycle import (
@@ -197,6 +198,7 @@ class AudioToTextRecorder:
                  deactivity_silence_confirmation_duration: float = (
                      DEACTIVITY_SILENCE_CONFIRMATION_DURATION
                  ),
+                 pulse_source: Optional[str] = None,
                  ):
         """
         Initializes an audio recorder and  transcription
@@ -230,7 +232,16 @@ class AudioToTextRecorder:
             computation to be used for transcription.
             See https://opennmt.net/CTranslate2/quantization.html.
         - input_device_index (int, default=0): The index of the audio input
-            device to use.
+            device to use. A device name (exact, or a case-insensitive
+            substring such as "USB PnP") is also accepted; indices can change
+            between processes, names do not. input_device_info reports what
+            was actually opened.
+        - pulse_source (str, default=None): PulseAudio/PipeWire source to
+            capture from, for example an output's monitor
+            ("alsa_output.pci-....analog-stereo.monitor" or
+            "@DEFAULT_MONITOR@"). Opens the ALSA "pulse" device with
+            PULSE_SOURCE set, so this is Linux-only. When input_device_index
+            is None the "pulse" (or "default") PortAudio device is used.
         - gpu_device_index (int, default=0): Device ID to use.
             The model can also be loaded on multiple GPUs by passing a list of
             IDs (e.g. [0, 1, 2, 3]). In that case, multiple transcriptions can
@@ -452,10 +463,10 @@ class AudioToTextRecorder:
             from the transcription output.
         - print_transcription_time (bool, default=False): Logs processing time
             of main model transcription 
-        - early_transcription_on_silence (int, default=0): If set, the
+        - early_transcription_on_silence (float, default=0): If set, the
             system will transcribe audio faster when silence is detected.
-            Transcription will start after the specified milliseconds, so 
-            keep this value lower than post_speech_silence_duration. 
+            Transcription will start after the specified seconds of silence,
+            so keep this value lower than post_speech_silence_duration. 
             Ideally around post_speech_silence_duration minus the estimated
             transcription time with the main model.
             If silence lasts longer than post_speech_silence_duration, the 
@@ -603,6 +614,7 @@ class AudioToTextRecorder:
             deactivity_silence_confirmation_duration=(
                 deactivity_silence_confirmation_duration
             ),
+            pulse_source=pulse_source,
         )
 
         initialize_recorder(
@@ -714,6 +726,17 @@ class AudioToTextRecorder:
         Interrupts the current recording or transcription flow.
         """
         return abort_recording(self)
+
+    @property
+    def input_device_info(self):
+        """
+        Returns the input device the capture worker actually opened, or None.
+
+        A dict with index, name and sample_rate once the stream is open. The
+        worker may pick a different device than requested (fallbacks), so this
+        is the reliable source for what is being listened to.
+        """
+        return read_input_device_info(self.input_device_info_shared)
 
     def set_microphone(self, microphone_on=True):
         """
