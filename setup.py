@@ -159,6 +159,7 @@ base_requirements = [
 
 faster_whisper_requirements = [requirement("faster-whisper")]
 whisper_cpp_requirements = ["pywhispercpp"]
+whistle_requirements = ["cactus-needle"]
 openai_whisper_requirements = ["openai-whisper"]
 sherpa_onnx_requirements = ["sherpa-onnx"]
 silero_vad_requirements = [
@@ -190,6 +191,7 @@ openwakeword_requirements = [requirement("openwakeword")]
 all_optional_requirements = unique_requirements(
     faster_whisper_requirements
     + whisper_cpp_requirements
+    + whistle_requirements
     + openai_whisper_requirements
     + sherpa_onnx_requirements
     + silero_onnx_requirements
@@ -207,6 +209,7 @@ extras_require = {
     "faster-whisper": faster_whisper_requirements,
     "whisper-cpp": whisper_cpp_requirements,
     "whispercpp": whisper_cpp_requirements,
+    "whistle": whistle_requirements,
     "openai-whisper": openai_whisper_requirements,
     "sherpa-onnx": sherpa_onnx_requirements,
     "sherpa": sherpa_onnx_requirements,

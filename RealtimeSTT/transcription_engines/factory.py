@@ -36,6 +36,8 @@ ENGINE_CLASS_PATHS = {
     "kroko": (".kroko_onnx_engine", "KrokoOnnxEngine"),
     "banafo_kroko": (".kroko_onnx_engine", "KrokoOnnxEngine"),
     "funasr": (".funasr_engine", "FunASREngine"),
+    "whistle": (".whistle_engine", "WhistleEngine"),
+    "cactus_whistle": (".whistle_engine", "WhistleEngine"),
 }
 
 
