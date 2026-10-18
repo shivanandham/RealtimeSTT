@@ -8,6 +8,8 @@ and WER on the full clips.
 Usage:
     pip install jiwer  # plus each engine's own package
     python tests/asr_engine_benchmark.py [audio_dir] [--step 1.0] [--only whistle,tiny]
+    python tests/asr_engine_benchmark.py --device cpu            # CPU-only machine: run the CPU table
+    python tests/asr_engine_benchmark.py --device cpu --add "sherpa parakeet=sherpa_onnx_parakeet:/path/to/model-dir"
 
 audio_dir holds <id>.wav files with matching <id>.txt transcripts
 (default: tests/unit/audio).
@@ -49,6 +51,13 @@ ENGINES = {
     "faster_whisper large-v3-turbo": _fw("large-v3-turbo"),
     # Whistle's engine is CPU-only.
     "whistle CPU": ("whistle", dict(model="whistle")),
+    "whisper_cpp tiny.en CPU": ("whisper_cpp", dict(model="tiny.en", device="cpu", beam_size=1)),
+    "whisper_cpp base.en CPU": ("whisper_cpp", dict(model="base.en", device="cpu", beam_size=1)),
+    "whisper_cpp small.en CPU": ("whisper_cpp", dict(model="small.en", device="cpu", beam_size=1)),
+    "faster_whisper small.en CPU": _fw("small.en", "cpu"),
+    "faster_whisper distil-small.en CPU": _fw("distil-small.en", "cpu"),
+    "moonshine streaming-tiny CPU": ("moonshine", dict(model="UsefulSensors/moonshine-streaming-tiny", device="cpu")),
+    "moonshine streaming-medium CPU": ("moonshine", dict(model="UsefulSensors/moonshine-streaming-medium", device="cpu")),
     "moonshine streaming-tiny": _gpu("moonshine", "UsefulSensors/moonshine-streaming-tiny"),
     "moonshine streaming-medium": _gpu("moonshine", "UsefulSensors/moonshine-streaming-medium"),
     "parakeet tdt-0.6b-v2": _gpu("parakeet", "nvidia/parakeet-tdt-0.6b-v2"),
@@ -117,15 +126,30 @@ def main():
     parser.add_argument("audio_dir", nargs="?", default=str(Path(__file__).parent / "unit" / "audio"))
     parser.add_argument("--step", type=float, default=1.0, help="Seconds of new audio between realtime calls.")
     parser.add_argument("--only", default="", help="Comma-separated substrings of engine labels to run.")
+    parser.add_argument("--device", choices=["cuda", "cpu"], default=None,
+                        help="cpu: run only the CPU rows (labels ending in 'CPU'); cuda: only the GPU rows. Default: all.")
+    parser.add_argument("--add", action="append", default=[], metavar="LABEL=ENGINE:MODEL",
+                        help="Extra row, e.g. 'sherpa parakeet=sherpa_onnx_parakeet:/path/to/model-dir'. "
+                             "Runs on --device (default cpu). Repeatable.")
     args = parser.parse_args()
     wanted = [w.strip() for w in args.only.split(",") if w.strip()]
+    engines = dict(ENGINES)
+    for extra in args.add:
+        label, spec = extra.split("=", 1)
+        engine_name, model = spec.split(":", 1)
+        device = args.device or "cpu"
+        engines[label.strip()] = (engine_name.strip(), dict(model=model.strip(), device=device,
+                                                             compute_type="int8" if device == "cpu" else "float16"))
+    if args.device:
+        engines = {label: spec for label, spec in engines.items()
+                   if label.endswith("CPU") == (args.device == "cpu") or label.strip() in [e.split("=", 1)[0].strip() for e in args.add]}
 
     clips = load_clips(args.audio_dir)
     seconds = sum(len(audio) for audio, _ in clips) / SAMPLE_RATE
     width = 32
     print(f"{len(clips)} clips, {seconds:.0f}s of audio, step {args.step}s\n")
     print(f"{'engine':<{width}}{'calls':>7}{'mean ms':>10}{'p50 ms':>9}{'p95 ms':>9}{'<5s p50':>9}{'>=5s p50':>10}{'final p50':>11}{'WER':>8}")
-    for label, (name, options) in ENGINES.items():
+    for label, (name, options) in engines.items():
         if wanted and not any(w in label for w in wanted):
             continue
         try:
