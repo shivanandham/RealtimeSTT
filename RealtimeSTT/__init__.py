@@ -9,6 +9,9 @@ __all__ = [
     "RealtimeSpeechBoundaryDetector",
     "SpeechBoundaryEvent",
     "SpeechBoundaryResult",
+    "ChannelSpec",
+    "MultiChannelRecorder",
+    "SharedEngine",
 ]
 
 
@@ -41,4 +44,8 @@ def __getattr__(name):
         from .core.realtime_boundary_detector import SpeechBoundaryResult
 
         return SpeechBoundaryResult
+    if name in ("ChannelSpec", "MultiChannelRecorder", "SharedEngine"):
+        from . import multichannel
+
+        return getattr(multichannel, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
