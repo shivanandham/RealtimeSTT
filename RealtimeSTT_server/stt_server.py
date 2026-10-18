@@ -30,7 +30,7 @@ stt-server [OPTIONS]
     - `-b, --batch, --batch_size`: Batch size for inference; default 16.
     - `--root, --download_root`: Specifies the root path were the Whisper models are downloaded to.
     - `--silero_sensitivity`: Silero VAD sensitivity (0-1); default 0.05.
-    - `--silero_use_onnx`: Use Silero ONNX model; default False.
+    - `--silero_use_onnx`: Force the legacy torch.hub Silero ONNX loader; default auto (bundled ONNX).
     - `--webrtc_sensitivity`: WebRTC VAD sensitivity (0-3); default 3.
     - `--min_length_of_recording`: Minimum recording duration in seconds; default 1.1.
     - `--min_gap_between_recordings`: Min time between recordings in seconds; default 0.
@@ -160,6 +160,7 @@ import logging
 import wave
 import json
 import time
+import os
 
 global_args = None
 recorder = None
@@ -197,6 +198,55 @@ allowed_parameters = [
 # Queues and connections for control and data
 control_connections = set()
 data_connections = set()
+data_clients = {}  # data websocket -> what that client is sending us
+
+MODEL_BENCHMARKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_benchmarks.json")
+
+
+def _json_safe(value):
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return None
+
+
+def build_server_info():
+    """
+    Describes the running server for other programs: active models, audio input, config and benchmarks.
+    """
+    with open(MODEL_BENCHMARKS_PATH, encoding="utf-8") as f:
+        benchmarks = json.load(f)
+    engine = getattr(recorder, "transcription_engine", None) or "faster_whisper"
+    return {
+        "server": {
+            "control_url": f"ws://localhost:{global_args.control}",
+            "data_url": f"ws://localhost:{global_args.data}",
+        },
+        "active": {
+            "transcription_engine": engine,
+            "model": recorder_config.get("model"),
+            "realtime_transcription_engine": getattr(recorder, "realtime_transcription_engine", None) or engine,
+            "realtime_model": recorder_config.get("realtime_model_type"),
+            "enable_realtime_transcription": recorder_config.get("enable_realtime_transcription"),
+            "device": getattr(recorder, "device", recorder_config.get("device")),
+            "compute_type": recorder_config.get("compute_type"),
+            "language": getattr(recorder, "language", recorder_config.get("language")),
+        },
+        "input": {
+            "source": "websocket",
+            "data_url": f"ws://localhost:{global_args.data}",
+            "target_sample_rate": 16000,
+            "clients": list(data_clients.values()),
+        },
+        "config": {
+            key: value for key, value in recorder_config.items()
+            if not callable(value) and _json_safe(value) is not None
+        },
+        "benchmark": benchmarks["benchmark"],
+        "models": benchmarks["models"],
+    }
+
 control_queue = asyncio.Queue()
 audio_queue = asyncio.Queue()
 
@@ -466,8 +516,8 @@ def parse_arguments():
     parser.add_argument('--silero_sensitivity', type=float, default=0.05,
                         help='Sensitivity level for Silero Voice Activity Detection (VAD), with a range from 0 to 1. Lower values make the model less sensitive, useful for noisy environments. Default is 0.05.')
 
-    parser.add_argument('--silero_use_onnx', action='store_true', default=False,
-                        help='Enable ONNX version of Silero model for faster performance with lower resource usage. Default is False.')
+    parser.add_argument('--silero_use_onnx', action='store_true', default=None,
+                        help='Force the legacy torch.hub Silero ONNX loader. By default the bundled ONNX model is selected automatically (no download or prompt).')
 
     parser.add_argument('--webrtc_sensitivity', type=int, default=3,
                         help='Sensitivity level for WebRTC Voice Activity Detection (VAD), with a range from 0 to 3. Higher values make the model less sensitive, useful for cleaner environments. Default is 3.')
@@ -712,6 +762,11 @@ async def control_handler(websocket):
                             else:
                                 print(f"{bcolors.WARNING}Parameter {parameter} does not exist (get_parameter){bcolors.ENDC}")
                                 await websocket.send(json.dumps({"status": "error", "message": f"Parameter {parameter} does not exist (get_parameter)"}))
+                    elif command == "get_info":
+                        response = {"status": "success", "info": build_server_info()}
+                        if command_data.get("request_id") is not None:
+                            response["request_id"] = command_data["request_id"]
+                        await websocket.send(json.dumps(response))
                     elif command == "call_method":
                         method_name = command_data.get("method")
                         if method_name in allowed_methods:
@@ -746,6 +801,14 @@ async def data_handler(websocket):
     global writechunks, wav_file
     print(f"{bcolors.OKGREEN}Data client connected{bcolors.ENDC}")
     data_connections.add(websocket)
+    client = data_clients[websocket] = {
+        "remote_address": ":".join(str(part) for part in (websocket.remote_address or ())[:2]),
+        "connected_at": datetime.now().isoformat(timespec="seconds"),
+        "sample_rate": None,
+        "input_device": None,
+        "chunks_received": 0,
+        "last_chunk_at": None,
+    }
     try:
         while True:
             message = await websocket.recv()
@@ -759,6 +822,10 @@ async def data_handler(websocket):
                 metadata_json = message[4:4+metadata_length].decode('utf-8')
                 metadata = json.loads(metadata_json)
                 sample_rate = metadata['sampleRate']
+                client["sample_rate"] = sample_rate
+                client["input_device"] = metadata.get("inputDevice", client["input_device"])
+                client["chunks_received"] += 1
+                client["last_chunk_at"] = datetime.now().isoformat(timespec="milliseconds")
 
                 if 'server_sent_to_stt' in metadata:
                     stt_received_ns = time.time_ns()
@@ -792,6 +859,7 @@ async def data_handler(websocket):
         print(f"{bcolors.WARNING}Data client disconnected: {e}{bcolors.ENDC}")
     finally:
         data_connections.remove(websocket)
+        data_clients.pop(websocket, None)
         recorder.clear_audio_queue()  # Ensure audio queue is cleared if client disconnects
 
 async def broadcast_audio_messages():

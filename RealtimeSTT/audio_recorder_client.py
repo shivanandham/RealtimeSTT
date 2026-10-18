@@ -667,6 +667,14 @@ class AudioToTextRecorderClient:
             if not self.setup_audio():
                 raise Exception("Failed to set up audio recording.")
 
+            # Tells the server which microphone this audio comes from (reported by its get_info command).
+            input_device = {"index": self.audio_input.input_device_index}
+            try:
+                input_device["name"] = self.audio_input.audio_interface.get_device_info_by_index(
+                    self.audio_input.input_device_index)["name"]
+            except Exception:
+                pass
+
             # Initialize WAV file writer if output_wav_file is provided
             if self.output_wav_file and not self.wav_file:
                 self.wav_file = wave.open(self.output_wav_file, 'wb')
@@ -696,7 +704,7 @@ class AudioToTextRecorderClient:
                         continue
 
                     if self.recording_start.is_set():
-                        metadata = {"sampleRate": self.audio_input.device_sample_rate}
+                        metadata = {"sampleRate": self.audio_input.device_sample_rate, "inputDevice": input_device}
                         metadata_json = json.dumps(metadata)
                         metadata_length = len(metadata_json)
                         message = struct.pack('<I', metadata_length) + metadata_json.encode('utf-8') + audio_data

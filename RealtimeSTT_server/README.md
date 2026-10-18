@@ -13,6 +13,7 @@ This directory contains the server and client implementations for the RealtimeST
   - [Starting the Client](#starting-the-client)
   - [Client Parameters](#client-parameters)
 - [WebSocket Interface](#websocket-interface)
+  - [Server Info (`get_info`)](#server-info-get_info)
 - [Examples](#examples)
   - [Starting the Server and Client](#starting-the-server-and-client)
   - [Setting Parameters](#setting-parameters)
@@ -59,13 +60,13 @@ You can configure the server using the following command-line arguments:
 #### `-m`, `--model`
 
 - **Type**: `str`
-- **Default**: `'large-v2'`
-- **Description**: Path to the Speech-to-Text (STT) model or specify a model size. Options include: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, or any HuggingFace CTranslate2 STT model such as `deepdml/faster-whisper-large-v3-turbo-ct2`.
+- **Default**: `'large-v3-turbo'` on GPU, `'small'` on CPU
+- **Description**: Path to the Speech-to-Text (STT) model or specify a model size. Options include: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, `large-v3-turbo`, or any HuggingFace CTranslate2 STT model.
 
 #### `-r`, `--rt-model`, `--realtime_model_type`
 
 - **Type**: `str`
-- **Default**: `'tiny.en'`
+- **Default**: `'small.en'` on GPU, `'tiny.en'` on CPU
 - **Description**: Model size for real-time transcription. Options are the same as for `--model`. This is used only if real-time transcription is enabled (`--enable_realtime_transcription`).
 
 #### `-l`, `--lang`, `--language`
@@ -117,8 +118,8 @@ You can configure the server using the following command-line arguments:
 #### `--silero_use_onnx`
 
 - **Action**: `store_true`
-- **Default**: `False`
-- **Description**: Enable the ONNX version of the Silero model for faster performance with lower resource usage.
+- **Default**: auto (bundled ONNX model, no download or prompt)
+- **Description**: Force the legacy torch.hub Silero ONNX loader.
 
 #### `--webrtc_sensitivity`
 
@@ -421,6 +422,26 @@ The server uses two WebSocket connections:
 1. **Control WebSocket**: Used to send and receive control commands, such as setting parameters or invoking recorder methods.
 
 2. **Data WebSocket**: Used to send audio data for transcription and receive real-time transcription updates.
+
+### Server Info (`get_info`)
+
+Programs that talk to the server can ask it to describe itself on the control WebSocket:
+
+```json
+{"command": "get_info", "request_id": 1}
+```
+
+The reply (`{"status": "success", "request_id": 1, "info": {...}}`) contains:
+
+- `server`: the control and data WebSocket URLs.
+- `active`: the transcription engine, model, realtime engine and model, device, compute type and language in use.
+- `input`: where audio comes from. The server is fed over the data WebSocket, so this lists each connected
+  data client with its sample rate, chunk count, last chunk time and, for `stt` / `AudioToTextRecorderClient`,
+  the microphone it captures from (`input_device: {"index", "name"}`).
+- `config`: every JSON-serializable recorder setting the server started with.
+- `models` and `benchmark`: the models we measured and their latency and word error rate, from
+  [`model_benchmarks.json`](model_benchmarks.json) (produced by `tests/asr_engine_benchmark.py`).
+  Entries with `default_for` are the server's defaults for that device and role.
 
 ## Examples
 
