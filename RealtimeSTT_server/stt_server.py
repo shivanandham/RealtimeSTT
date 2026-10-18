@@ -161,6 +161,7 @@ import wave
 import json
 import time
 import os
+import importlib.util
 
 global_args = None
 recorder = None
@@ -226,8 +227,12 @@ def build_server_info():
         "active": {
             "transcription_engine": engine,
             "model": recorder_config.get("model"),
-            "realtime_transcription_engine": getattr(recorder, "realtime_transcription_engine", None) or engine,
-            "realtime_model": recorder_config.get("realtime_model_type"),
+            "realtime_transcription_engine": (
+                engine if recorder_config.get("use_main_model_for_realtime")
+                else getattr(recorder, "realtime_transcription_engine", None) or engine),
+            "realtime_model": recorder_config.get(
+                "model" if recorder_config.get("use_main_model_for_realtime") else "realtime_model_type"),
+            "use_main_model_for_realtime": bool(recorder_config.get("use_main_model_for_realtime")),
             "enable_realtime_transcription": recorder_config.get("enable_realtime_transcription"),
             "device": getattr(recorder, "device", recorder_config.get("device")),
             "compute_type": recorder_config.get("compute_type"),
@@ -454,13 +459,33 @@ DEVICE_DEFAULTS = {
 }
 
 
+# Best measured on GPU (2.9% WER, ~65 ms per call), but English-only and needs NVIDIA NeMo.
+PARAKEET_MODEL = 'nvidia/parakeet-tdt-0.6b-v2'
+
+
 def apply_device_defaults(args):
     if args.device == 'auto':
         import torch
         args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model, rt_model, compute_type = DEVICE_DEFAULTS['cuda' if args.device == 'cuda' else 'cpu']
-    args.model = args.model or model
-    args.rt_model = args.rt_model or rt_model
+
+    if (args.engine is None and args.model is None and args.device == 'cuda'
+            and (args.lang or 'en') == 'en' and importlib.util.find_spec('nemo') is not None):
+        args.engine, args.model = 'parakeet', PARAKEET_MODEL
+        if args.rt_engine is None and args.rt_model is None and args.use_main_model_for_realtime is None:
+            # Parakeet is fast enough for realtime too; sharing one loaded model saves VRAM.
+            args.use_main_model_for_realtime = True
+    args.engine = args.engine or 'faster_whisper'
+    args.use_main_model_for_realtime = bool(args.use_main_model_for_realtime)
+    if args.engine == 'faster_whisper':
+        args.model = args.model or model
+
+    # Whisper realtime model names only load in faster-whisper, so a non-Whisper main engine
+    # gets a faster-whisper realtime engine unless it also does the realtime work.
+    if args.rt_engine is None and args.engine != 'faster_whisper' and not args.use_main_model_for_realtime:
+        args.rt_engine = 'faster_whisper'
+    if (args.rt_engine or args.engine) == 'faster_whisper':
+        args.rt_model = args.rt_model or rt_model
     args.compute_type = args.compute_type or compute_type
     return args
 
@@ -472,7 +497,13 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Start the Speech-to-Text (STT) server with various configuration options.')
 
     parser.add_argument('-m', '--model', type=str, default=None,
-                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, large-v3-turbo, or any huggingface CTranslate2 STT model. Default is large-v3-turbo on GPU, small on CPU.')
+                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, large-v3-turbo, or any huggingface CTranslate2 STT model. Default is nvidia/parakeet-tdt-0.6b-v2 (parakeet engine) on GPU when NeMo is installed and the language is English, else large-v3-turbo on GPU and small on CPU.')
+
+    parser.add_argument('--engine', '--transcription_engine', type=str, default=None,
+                        help='Transcription engine for final transcription, e.g. faster_whisper, parakeet, qwen3_asr, granite_speech, whistle. Default is parakeet on GPU when NVIDIA NeMo is installed and the language is English, otherwise faster_whisper.')
+
+    parser.add_argument('--rt-engine', '--realtime_transcription_engine', type=str, default=None,
+                        help='Transcription engine for real-time transcription. Default follows --engine (faster_whisper when --engine is not Whisper and the main model is not used for realtime).')
 
     parser.add_argument('-r', '--rt-model', '--realtime_model_type', type=str, default=None,
                         help='Model size for real-time transcription. Options same as --model.  This is used only if real-time transcription is enabled (enable_realtime_transcription). Default is small.en on GPU, tiny.en on CPU.')
@@ -583,7 +614,7 @@ def parse_arguments():
     parser.add_argument('--wake_word_buffer_duration', type=float, default=1.0,
                         help='Duration of the buffer in seconds for wake word detection. This sets how long the system will store the audio before and after detecting the wake word. Default is 1.0 seconds.')
 
-    parser.add_argument('--use_main_model_for_realtime', action='store_true',
+    parser.add_argument('--use_main_model_for_realtime', action='store_true', default=None,
                         help='Enable this option if you want to use the main model for real-time transcription, instead of the smaller, faster real-time model. Using the main model may provide better accuracy but at the cost of higher processing time.')
 
     parser.add_argument('--use_extended_logging', action='store_true',
@@ -892,6 +923,8 @@ async def main_async():
 
     recorder_config = {
         'model': args.model,
+        'transcription_engine': args.engine,
+        'realtime_transcription_engine': args.rt_engine,
         'download_root': args.root,
         'realtime_model_type': args.rt_model,
         'language': args.lang,
