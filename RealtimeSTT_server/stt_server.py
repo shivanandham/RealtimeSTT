@@ -212,6 +212,45 @@ def _json_safe(value):
         return None
 
 
+# How to talk to this server, returned by get_info so a connecting program can discover it.
+PROTOCOL = {
+    "control_commands": {
+        "get_info": {"request": {"command": "get_info", "request_id": "optional, echoed back"},
+                     "reply": {"status": "success", "request_id": "...", "info": "this document"}},
+        "get_parameter": {"request": {"command": "get_parameter", "parameter": "one of allowed_parameters",
+                                      "request_id": "optional, echoed back"},
+                          "reply": {"status": "success", "parameter": "...", "value": "...", "request_id": "..."}},
+        "set_parameter": {"request": {"command": "set_parameter", "parameter": "one of allowed_parameters",
+                                      "value": "new value"},
+                          "reply": {"status": "success", "message": "..."}},
+        "call_method": {"request": {"command": "call_method", "method": "one of allowed_methods",
+                                    "args": [], "kwargs": {}},
+                        "reply": {"status": "success", "message": "..."}},
+    },
+    "data_audio_packet": {
+        "direction": "client -> server, binary WebSocket frame on the data URL",
+        "layout": "4-byte little-endian metadata length, UTF-8 JSON metadata, raw PCM",
+        "pcm": "16-bit signed little-endian mono",
+        "metadata": {"sampleRate": "required, Hz (resampled to 16000 by the server)",
+                     "inputDevice": "optional {index, name}, reported in get_info input.clients"},
+        "note": "All data clients feed one shared recorder; run one server per audio source.",
+    },
+    "data_messages": {
+        "direction": "server -> every connected data client, JSON text frames",
+        "types": {
+            "realtime": {"text": "partial transcription of the current utterance"},
+            "fullSentence": {"text": "final transcription of a finished utterance"},
+            "recording_start": {}, "recording_stop": {},
+            "vad_detect_start": {}, "vad_detect_stop": {},
+            "wakeword_detected": {}, "wakeword_detection_start": {}, "wakeword_detection_end": {},
+            "transcription_start": {"audio_bytes_base64": "the utterance audio being finalized"},
+            "start_turn_detection": {}, "stop_turn_detection": {},
+        },
+    },
+    "errors": {"status": "error", "message": "reason"},
+}
+
+
 def build_server_info():
     """
     Describes the running server for other programs: active models, audio input, config and benchmarks.
@@ -248,6 +287,7 @@ def build_server_info():
             key: value for key, value in recorder_config.items()
             if not callable(value) and _json_safe(value) is not None
         },
+        "protocol": dict(PROTOCOL, allowed_parameters=allowed_parameters, allowed_methods=allowed_methods),
         "benchmark": benchmarks["benchmark"],
         "models": benchmarks["models"],
     }

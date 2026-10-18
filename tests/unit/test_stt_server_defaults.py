@@ -86,6 +86,9 @@ class SttServerInfoTests(unittest.TestCase):
         self.assertNotIn("on_recording_start", info["config"])
         self.assertTrue(any(m.get("default_for") == ["cuda:final"] for m in info["models"]))
         self.assertIn("hardware", info["benchmark"])
+        self.assertIn("get_info", info["protocol"]["control_commands"])
+        self.assertIn("language", info["protocol"]["allowed_parameters"])
+        self.assertIn("fullSentence", info["protocol"]["data_messages"]["types"])
 
 
 if __name__ == "__main__":

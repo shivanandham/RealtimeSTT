@@ -463,6 +463,10 @@ The reply (`{"status": "success", "request_id": 1, "info": {...}}`) contains:
   data client with its sample rate, chunk count, last chunk time and, for `stt` / `AudioToTextRecorderClient`,
   the microphone it captures from (`input_device: {"index", "name"}`).
 - `config`: every JSON-serializable recorder setting the server started with.
+- `protocol`: how to talk to the server: each control command with its request and reply shape, the
+  `allowed_parameters` and `allowed_methods`, the binary audio packet layout for the data WebSocket, and every
+  message type the server sends back (`realtime`, `fullSentence`, `recording_start`, ...). A program or agent can
+  connect knowing only the control URL and learn the rest from this reply.
 - `models` and `benchmark`: the models we measured and their latency and word error rate, from
   [`model_benchmarks.json`](model_benchmarks.json) (produced by `tests/asr_engine_benchmark.py`).
   Entries with `default_for` are the server's defaults for that device and role.
