@@ -82,7 +82,7 @@ def run_audio_data_worker(
                 test_stream = audio_interface.open(
                     format=pyaudio.paInt16,
                     channels=1,
-                    rate=target_sample_rate,
+                    rate=sample_rate,
                     input=True,
                     frames_per_buffer=chunk_size,
                     input_device_index=device_index,
@@ -221,6 +221,25 @@ def run_audio_data_worker(
                     sample_rates_to_try.append(highest_rate)
             else:
                 sample_rates_to_try.append(48000)
+
+            # Skip rates the device rejects; otherwise validation fails at 16 kHz and the
+            # stream silently falls back to the default device instead of resampling.
+            if input_device_index is not None:
+                def rate_supported(rate):
+                    try:
+                        return audio_interface.is_format_supported(
+                            rate,
+                            input_device=input_device_index,
+                            input_channels=1,
+                            input_format=pyaudio.paInt16,
+                        )
+                    except ValueError:
+                        return False
+
+                sample_rates_to_try = (
+                    [rate for rate in sample_rates_to_try if rate_supported(rate)]
+                    or sample_rates_to_try
+                )
 
             logger.debug(f"Sample rates to try for device {input_device_index}: {sample_rates_to_try}")
 
