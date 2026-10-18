@@ -29,6 +29,26 @@ def _load_faster_whisper():
     return faster_whisper, faster_whisper.BatchedInferencePipeline
 
 
+def _preload_pip_cuda_libraries():
+    """
+    Loads cuBLAS/cuDNN from the nvidia-* pip wheels so CTranslate2 finds them without LD_LIBRARY_PATH.
+    """
+    import ctypes
+    from pathlib import Path
+
+    try:
+        nvidia = import_module("nvidia")
+    except ModuleNotFoundError:
+        return
+    for root in getattr(nvidia, "__path__", []):
+        for package in ("cublas", "cudnn"):
+            for library in sorted((Path(root) / package / "lib").glob("lib*.so.*")):
+                try:
+                    ctypes.CDLL(str(library), mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+
+
 class FasterWhisperEngine(BaseTranscriptionEngine):
     """
     Transcribes audio with faster-whisper.
@@ -42,7 +62,9 @@ class FasterWhisperEngine(BaseTranscriptionEngine):
         """
         super().__init__(config)
         faster_whisper, batched_inference_pipeline = _load_faster_whisper()
-        model = faster_whisper.WhisperModel(
+        if self.config.device == "cuda":
+            _preload_pip_cuda_libraries()
+        model =faster_whisper.WhisperModel(
             model_size_or_path=self.config.model,
             device=self.config.device,
             compute_type=self.config.compute_type,

@@ -17,8 +17,8 @@ stt-server [OPTIONS]
 ```
 
 ### Available Parameters:
-    - `-m, --model`: Model path or size; default 'large-v2'.
-    - `-r, --rt-model, --realtime_model_type`: Real-time model size; default 'tiny.en'.
+    - `-m, --model`: Model path or size; default 'large-v3-turbo' on GPU, 'small' on CPU.
+    - `-r, --rt-model, --realtime_model_type`: Real-time model size; default 'small.en' on GPU, 'tiny.en' on CPU.
     - `-l, --lang, --language`: Language code for transcription; default 'en'.
     - `-i, --input-device, --input_device_index`: Audio input device index; default 1.
     - `-c, --control, --control_port`: WebSocket control port; default 8011.
@@ -397,17 +397,35 @@ def on_turn_detection_stop(loop):
 #         asyncio.run_coroutine_threadsafe(audio_queue.put(message), loop)
 
 # Define the server's arguments
+# (final model, realtime model, compute type) per device, picked with tests/asr_engine_benchmark.py.
+DEVICE_DEFAULTS = {
+    'cuda': ('large-v3-turbo', 'small.en', 'float16'),
+    'cpu': ('small', 'tiny.en', 'int8'),
+}
+
+
+def apply_device_defaults(args):
+    if args.device == 'auto':
+        import torch
+        args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model, rt_model, compute_type = DEVICE_DEFAULTS['cuda' if args.device == 'cuda' else 'cpu']
+    args.model = args.model or model
+    args.rt_model = args.rt_model or rt_model
+    args.compute_type = args.compute_type or compute_type
+    return args
+
+
 def parse_arguments():
     global debug_logging, extended_logging, loglevel, writechunks, log_incoming_chunks, dynamic_silence_timing
 
     import argparse
     parser = argparse.ArgumentParser(description='Start the Speech-to-Text (STT) server with various configuration options.')
 
-    parser.add_argument('-m', '--model', type=str, default='small',
-                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, or any huggingface CTranslate2 STT model such as deepdml/faster-whisper-large-v3-turbo-ct2. Default is small (CPU-friendly).')
+    parser.add_argument('-m', '--model', type=str, default=None,
+                        help='Path to the STT model or model size. Options include: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v1, large-v2, large-v3-turbo, or any huggingface CTranslate2 STT model. Default is large-v3-turbo on GPU, small on CPU.')
 
-    parser.add_argument('-r', '--rt-model', '--realtime_model_type', type=str, default='tiny.en',
-                        help='Model size for real-time transcription. Options same as --model.  This is used only if real-time transcription is enabled (enable_realtime_transcription). Default is tiny.en.')
+    parser.add_argument('-r', '--rt-model', '--realtime_model_type', type=str, default=None,
+                        help='Model size for real-time transcription. Options same as --model.  This is used only if real-time transcription is enabled (enable_realtime_transcription). Default is small.en on GPU, tiny.en on CPU.')
     
     parser.add_argument('-l', '--lang', '--language', type=str, default='en',
                 help='Language code for the STT model to transcribe in a specific language. Leave this empty for auto-detection based on input audio. Default is en. List of supported language codes: https://github.com/openai/whisper/blob/main/whisper/tokenizer.py#L11-L110')
@@ -521,14 +539,14 @@ def parse_arguments():
     parser.add_argument('--use_extended_logging', action='store_true',
                         help='Writes extensive log messages for the recording worker, that processes the audio chunks.')
 
-    parser.add_argument('--compute_type', type=str, default='int8',
-                        help='Type of computation to use. See https://opennmt.net/CTranslate2/quantization.html. Default is int8 (CPU-friendly).')
+    parser.add_argument('--compute_type', type=str, default=None,
+                        help='Type of computation to use. See https://opennmt.net/CTranslate2/quantization.html. Default is float16 on GPU, int8 on CPU.')
 
     parser.add_argument('--gpu_device_index', type=int, default=0,
                         help='Index of the GPU device to use. Default is None.')
     
-    parser.add_argument('--device', type=str, default='cpu',
-                        help='Device for model to use. Can either be "cuda" or "cpu". Default is cpu.')
+    parser.add_argument('--device', type=str, default='auto',
+                        help='Device for model to use. Can be "auto", "cuda" or "cpu". Default is auto (cuda when a GPU is available).')
     
     parser.add_argument('--handle_buffer_overflow', action='store_true',
                         help='Handle buffer overflow during transcription. Default is False.')
@@ -547,6 +565,7 @@ def parse_arguments():
 
     # Parse arguments
     args = parser.parse_args()
+    apply_device_defaults(args)
 
     debug_logging = args.debug
     extended_logging = args.use_extended_logging
