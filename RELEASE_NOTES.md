@@ -1,5 +1,40 @@
 # Release Notes
 
+## Unreleased
+
+### Added
+
+- Added the `whistle` transcription engine (Cactus Whistle through
+  `cactus-needle`, CPU only) and the `whistle` install extra.
+- Added `tests/asr_engine_benchmark.py`, which measures realtime-style latency,
+  final-call latency and WER per engine, and
+  `RealtimeSTT_server/model_benchmarks.json` with results from an RTX 3070
+  Laptop GPU and i7-11370H.
+- Added the `get_info` control command to `stt-server`. It reports the active
+  engine, models and device, each connected data client's sample rate and
+  microphone, the startup configuration, and the benchmarked models.
+  `AudioToTextRecorderClient` now sends its input device with each audio chunk.
+- Added `--engine` and `--rt-engine` to `stt-server` to select any transcription
+  engine.
+
+### Changed
+
+- `stt-server` now defaults to `--device auto`. On GPU it uses
+  `nvidia/parakeet-tdt-0.6b-v2` for final and realtime transcription when
+  NVIDIA NeMo is installed and the language is English, otherwise
+  `large-v3-turbo` (final) and `small.en` (realtime) in float16. CPU defaults
+  stay `small` / `tiny.en` / int8.
+- faster-whisper loads cuBLAS/cuDNN from `nvidia-*` pip wheels on CUDA, so
+  `LD_LIBRARY_PATH` is no longer needed for them.
+
+### Fixed
+
+- Microphones that reject 16 kHz (for example USB mics that only support
+  48 kHz) no longer silently fall back to the default input device; the stream
+  opens at a supported rate and is resampled.
+- `stt-server` no longer forces the legacy torch.hub Silero loader, which needed
+  a download and an interactive trust prompt and blocked headless startup.
+
 ## 1.0.2 - 2026-05-31
 
 ### Changed

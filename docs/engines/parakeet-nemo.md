@@ -64,6 +64,13 @@ recorder = AudioToTextRecorder(
 
 ## Expected Resource Usage
 
+`stt-server` uses `nvidia/parakeet-tdt-0.6b-v2` by default when it runs on a GPU,
+NeMo is installed and the language is English, with the same loaded model also
+serving realtime transcription. On an RTX 3070 Laptop GPU this took about 65 ms
+per call at 2.9% WER on a LibriSpeech sample and about 2.7 GB of VRAM; NeMo adds
+roughly 20 s to startup. `nvidia/parakeet-tdt-0.6b-v3` failed to load under
+PyTorch 2.14 (`torch.load` `weights_only` default) in the same test.
+
 Parakeet v3 is a large ASR model compared with the default tiny Whisper demo.
 Expect higher memory use, longer startup time, and better results from a GPU
 environment. For multi-user server deployments, prefer a shared-model server

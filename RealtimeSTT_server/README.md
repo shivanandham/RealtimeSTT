@@ -75,6 +75,18 @@ You can configure the server using the following command-line arguments:
 - **Default**: follows `--engine`; `faster_whisper` when `--engine` is not Whisper and the main model is not used for realtime
 - **Description**: Transcription engine for real-time transcription.
 
+#### `--device`
+
+- **Type**: `str`
+- **Default**: `'auto'`
+- **Description**: `auto` uses `cuda` when PyTorch sees a GPU and `cpu` otherwise. The model, realtime model and compute type defaults follow the resolved device.
+
+#### `--compute_type`
+
+- **Type**: `str`
+- **Default**: `'float16'` on GPU, `'int8'` on CPU
+- **Description**: CTranslate2 compute type for faster-whisper models. See https://opennmt.net/CTranslate2/quantization.html.
+
 #### `-r`, `--rt-model`, `--realtime_model_type`
 
 - **Type**: `str`

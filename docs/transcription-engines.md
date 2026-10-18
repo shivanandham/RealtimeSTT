@@ -20,6 +20,14 @@ The compatibility default is `faster_whisper`.
 | NVIDIA Parakeet on Linux/WSL2 | `parakeet` | Uses NVIDIA NeMo ASR for the Parakeet checkpoint. |
 | Meta Omnilingual ASR on Linux/WSL2 Python 3.11.x | `omnilingual_asr` | Uses Meta's Omnilingual ASR package; native Windows and Python 3.12.x are not practical install targets for the current upstream dependency stack. |
 | Hugging Face speech-language models | `granite_speech`, `qwen3_asr`, `moonshine`, `cohere_transcribe` | Thin adapters around model-family packages and Transformers. |
+| Tiny CPU-only realtime previews for short utterances | `whistle` | Cactus Whistle (about 17 MB) through `cactus-needle`; seven European languages. |
+
+For measured latency and word error rate of these engines on one GPU/CPU
+machine, see `RealtimeSTT_server/model_benchmarks.json` and rerun
+`tests/asr_engine_benchmark.py` on your own hardware. On an RTX 3070 Laptop GPU,
+`parakeet` with `nvidia/parakeet-tdt-0.6b-v2` was both the fastest and among the
+most accurate (2.9% WER, about 65 ms per call), followed by `faster_whisper`
+with `large-v3-turbo` for multilingual use.
 
 ## Supported Engine Names
 
@@ -40,6 +48,7 @@ CLI-style names work where listed.
 | `granite_speech`, `granite` | Experimental Transformers backend | [engines/hf-transformers.md](engines/hf-transformers.md) |
 | `qwen3_asr`, `qwen_asr` | Experimental Qwen ASR backend | [engines/hf-transformers.md](engines/hf-transformers.md) |
 | `cohere_transcribe`, `cohere` | Experimental Transformers backend, requires language | [engines/cohere.md](engines/cohere.md) |
+| `whistle`, `cactus_whistle` | Optional CPU-only Cactus Whistle backend | [engines/whistle.md](engines/whistle.md) |
 | `openai_api` | Placeholder, not wired yet | Not available |
 
 Unsupported names raise an error that lists the available engines.
@@ -109,6 +118,7 @@ meaningful for one engine may be ignored or invalid for another.
 | `moonshine`, `granite_speech`, `qwen3_asr`, `cohere_transcribe` | Yes, through Hugging Face or the engine package, subject to access. | `download_root` maps to cache options where supported. |
 | `parakeet` NeMo | Yes, through NeMo model loading. | NeMo cache/model options may be passed in `transcription_engine_options`. |
 | `omnilingual_asr` | Yes, through Omnilingual/fairseq2/Hugging Face cache paths in Linux or WSL2 with Python 3.11.x. | Pass an Omnilingual model card such as `omniASR_CTC_1B_v2`; RealtimeSTT does not move or delete downloaded assets. Unknown v2 cards are a dependency mismatch, not a signal to fall back to older non-v2 cards. |
+| `whistle` | Yes, the native engine and base weights through `cactus-needle`. | Tuned `.cact` weights can be passed as `model` or the `weights` option. |
 | `sherpa_onnx_*` | No. | Download and extract the sherpa-onnx model bundle, then pass the extracted directory. |
 | `kroko_onnx` | Yes, for known public Community `.data` files when enabled. | Pro/private models need an existing `.data` path, direct URL, or explicit repo/token options. |
 

@@ -72,6 +72,7 @@ python -m pip install "RealtimeSTT[whisper-cpp,openwakeword]"
 | `parakeet` / `nvidia-parakeet` | `nemo_toolkit[asr]` | NVIDIA NeMo Parakeet backend, best on Linux or WSL2. |
 | `omnilingual` / `omnilingual-asr` / `meta-omnilingual-asr` | `omnilingual-asr>=0.2.0`, matching `torch==2.8.0` / `torchaudio==2.8.0` on Linux/WSL2 Python 3.11.x | Meta Omnilingual ASR backend. Native Windows installs skip the actual Omnilingual runtime by package marker, and Python 3.12.x is not a practical install target until upstream dependency metadata changes. |
 | `qwen` / `qwen3-asr` | `qwen-asr` | Qwen ASR backend. |
+| `whistle` | `cactus-needle` | Cactus Whistle CPU-only backend. |
 | `qwen-vllm` | `qwen-asr[vllm]` | Qwen ASR with vLLM support. |
 | `kroko-builder` | RealtimeSTT builder helper, `huggingface_hub` | Builds/installs Kroko-ONNX from upstream and downloads public Community models. On Windows, the builder currently requires CPython 3.12 x64. For `AudioToTextRecorder` smoke tests or live microphone use, combine it with `silero-onnx-cpu`. |
 | `porcupine` / `pvporcupine` / `pvp` | `pvporcupine` | Porcupine wake-word backend. |
@@ -197,6 +198,13 @@ Use the PyTorch install selector for the exact command for your driver and CUDA
 version. Keep `device="cuda"` for GPU inference and use `device="cpu"` for CPU
 or CPU-only engine stacks.
 
+faster-whisper (CTranslate2) needs the CUDA 12 cuBLAS and cuDNN 9 libraries. When
+they are installed as `nvidia-cublas-cu12` / `nvidia-cudnn-cu12` pip wheels,
+RealtimeSTT loads them from the environment automatically, so
+`LD_LIBRARY_PATH` does not need to point at them. If you still see
+`Library libcublas.so.12 is not found or cannot be loaded`, install those wheels
+or a system CUDA 12 runtime.
+
 ## Optional Engine Dependencies
 
 Install only the engine stack you plan to use:
@@ -213,6 +221,7 @@ Install only the engine stack you plan to use:
 | `granite_speech` | `python -m pip install "RealtimeSTT[granite]"` | Downloads Hugging Face model files automatically. |
 | `qwen3_asr` | `python -m pip install -U "RealtimeSTT[qwen]"` | Downloads Qwen model files through the Qwen ASR package. |
 | `cohere_transcribe` | `python -m pip install "RealtimeSTT[cohere]"` | Downloads Hugging Face model files; gated model access may be required. |
+| `whistle` | `python -m pip install "RealtimeSTT[whistle]"` | Downloads its native engine and weights through `cactus-needle`. CPU only. |
 | `kroko_onnx` | `python -m pip install "RealtimeSTT[kroko-builder,silero-onnx-cpu]"`, then `stt-install-kroko --build` | Public Community models can auto-download or be downloaded with `huggingface_hub`; Pro/private models need an existing `.data` path, direct URL, or explicit repo/token options. `silero-onnx-cpu` provides the local VAD backend needed by recorder-based smoke tests and live microphone use. |
 
 Per-engine setup lives in [transcription-engines.md](transcription-engines.md)

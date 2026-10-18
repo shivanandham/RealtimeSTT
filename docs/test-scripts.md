@@ -13,6 +13,7 @@ Run scripts from the repository root so relative imports and model paths work.
 | --- | --- | --- |
 | `tests/final_transcription_gap_regression.py` | Regression harness | Streams a WAV file while `AudioToTextRecorder.text()` runs in parallel to reproduce slow final-transcription gaps. Can generate expected JSON and compare CPU output. |
 | `tests/realtime_transcription_count_comparison.py` | Manual integration benchmark | Compares timer-based realtime transcription with syllable-boundary scheduling on deterministic WAV input. Reports realtime model-call counts and validates final text. |
+| `tests/asr_engine_benchmark.py` | Manual engine benchmark | Re-transcribes growing prefixes of WAV clips (with matching `.txt` transcripts) the way the realtime loop does and reports per-call latency, final-call latency and WER per engine. `--only` filters engines by label. Results feed `RealtimeSTT_server/model_benchmarks.json`. |
 | `tests/realtime_boundary_detector_live_test.py` | Manual detector check | Lightweight live check for the realtime boundary detector. |
 | `tests/realtime_boundary_detector_microphone.py` | Manual detector visualizer | Microphone visualizer for syllable/speech boundary detection. Useful when tuning boundary sensitivity. |
 
