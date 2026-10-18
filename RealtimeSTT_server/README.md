@@ -14,6 +14,7 @@ This directory contains the server and client implementations for the RealtimeST
   - [Client Parameters](#client-parameters)
 - [WebSocket Interface](#websocket-interface)
   - [Server Info (`get_info`)](#server-info-get_info)
+- [Multi-Channel Runner (`stt-runner`)](#multi-channel-runner-stt-runner)
 - [Examples](#examples)
   - [Starting the Server and Client](#starting-the-server-and-client)
   - [Setting Parameters](#setting-parameters)
@@ -470,6 +471,25 @@ The reply (`{"status": "success", "request_id": 1, "info": {...}}`) contains:
 - `models` and `benchmark`: the models we measured and their latency and word error rate, from
   [`model_benchmarks.json`](model_benchmarks.json) (produced by `tests/asr_engine_benchmark.py`).
   Entries with `default_for` are the server's defaults for that device and role.
+
+## Multi-Channel Runner (`stt-runner`)
+
+`stt-runner` is for programs that embed RealtimeSTT as a child process rather
+than over WebSockets. It transcribes one or more audio channels (microphones
+by name or index, PulseAudio sources such as an output's monitor) with one
+shared model set, prints one JSON event per line on stdout and takes commands
+on stdin:
+
+```bash
+stt-runner --channel name=me pulse_source=@DEFAULT_SOURCE@ \
+           --channel name=them pulse_source=@DEFAULT_MONITOR@ --silence_timing
+```
+
+Events carry `channel`, `utterance_id` and timestamps; commands include
+`pause`/`resume`/`clear`, `set_channel` (switch an input without reloading
+models), `set_parameter`, `get_info` and `shutdown`. `stt-runner --list-devices`
+lists the inputs. Model defaults are the same as `stt-server`'s. The full
+protocol is in [docs/multichannel.md](../docs/multichannel.md).
 
 ## Examples
 

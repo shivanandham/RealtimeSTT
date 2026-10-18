@@ -29,6 +29,7 @@ engines, wake-word backends, and model runtimes are loaded lazily so importing
 | `RealtimeSTT/__init__.py` | Lazy exports for `AudioToTextRecorder`, `AudioToTextRecorderClient`, `AudioInput`, `RealtimeSpeechBoundaryDetector`, `SpeechBoundaryEvent`, and `SpeechBoundaryResult`. | Keep names lazy and backward compatible. Do not import model runtimes from package import. |
 | `RealtimeSTT/audio_recorder.py` | `AudioToTextRecorder` and recorder constructor options, callbacks, methods, text formatting, and error behavior. | This is the main compatibility boundary. Refactors should delegate internally while preserving constructor parameters and callback behavior. |
 | `RealtimeSTT/audio_recorder_client.py` | Legacy websocket client `AudioToTextRecorderClient`. | Keep protocol behavior and public methods stable while `RealtimeSTT_server` remains supported. |
+| `RealtimeSTT/multichannel.py` | `SharedEngine`, `ChannelSpec`, `MultiChannelRecorder`: several inputs, one recorder each, shared inference lanes, channel-tagged events. | Builds on the public `transcription_executor` / `realtime_transcription_executor` hooks; keep event names and fields stable, `stt-runner` and external programs consume them. |
 | `RealtimeSTT/transcription_engines/base.py` | `TranscriptionEngineConfig`, `TranscriptionResult`, `TranscriptionInfo`, `BaseTranscriptionEngine`, `StreamingTranscriptionSession`, and engine errors. | Engine adapters should continue normalizing output into this contract. |
 | `RealtimeSTT/transcription_engines/factory.py` | Engine alias normalization, lazy adapter loading, `create_transcription_engine()`, and `get_supported_transcription_engines()`. | Keep existing aliases and unsupported-engine error text compatible unless intentionally changed. |
 | `RealtimeSTT_server/stt_server.py` | Legacy dual-websocket server CLI and runtime callbacks. | Compatibility path; avoid mixing legacy server cleanup with recorder refactors. |
@@ -71,6 +72,7 @@ engines, wake-word backends, and model runtimes are loaded lazily so importing
 | `example_fastapi_server/static/index.html` | Browser UI for the reference server. | Keep websocket protocol assumptions aligned with `protocol.py`. |
 | `RealtimeSTT_server/stt_server.py` | Legacy control/data websocket server around `AudioToTextRecorder`. | Compatibility path. Do not couple new FastAPI restructuring to legacy server cleanup. |
 | `RealtimeSTT_server/stt_cli_client.py` | CLI client for the legacy server. | Keep command behavior aligned with the legacy protocol. |
+| `RealtimeSTT_server/stt_runner.py` | `stt-runner`: JSON-lines child process over `MultiChannelRecorder` (stdout events, stdin commands, device listing). | Protocol documented in `docs/multichannel.md`; keep it backward compatible for embedding programs. |
 | `example_browserclient/*`, `example_webserver/*`, `example_app/*` | Older/manual examples and demos. | Useful for smoke testing and user workflows, but avoid treating examples as the primary architecture source. |
 
 ## Test And Documentation Map

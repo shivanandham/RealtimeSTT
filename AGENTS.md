@@ -20,6 +20,9 @@ mono int16 PCM.
 | `RealtimeSTT/transcription_engines/` | One adapter per ASR backend, registered by name in `factory.py`. Backends import lazily. |
 | `RealtimeSTT/audio_recorder_client.py` | `AudioToTextRecorderClient`, which streams a microphone to `stt-server`. |
 | `RealtimeSTT_server/stt_server.py` | `stt-server`: control WebSocket (default 8011) and data WebSocket (default 8012). |
+| `RealtimeSTT/multichannel.py` | `SharedEngine` (one model, one inference thread, finals before partials) and `MultiChannelRecorder` (N inputs, one recorder each, shared engines, channel-tagged events). |
+| `RealtimeSTT_server/stt_runner.py` | `stt-runner`: multi-channel JSON-lines child process for other programs (stdout events, stdin commands). Protocol in `docs/multichannel.md`. |
+| `RealtimeSTT/core/model_defaults.py` | Device-based engine/model defaults shared by `stt-server` and `stt-runner`. |
 | `RealtimeSTT_server/model_benchmarks.json` | Measured latency and WER per engine/model, served by `get_info`. |
 | `example_fastapi_server/` | Multi-session FastAPI server (one recorder per session, shared models). |
 | `tests/unit/` | Fast unit tests, no models or audio hardware needed. |
@@ -34,6 +37,8 @@ mono int16 PCM.
   (about 3 s; skipped tests are opt-in model tests).
 - Run code from a checkout without installing: `PYTHONPATH=. .venv/bin/python ...`.
 - Server: `PYTHONPATH=. .venv/bin/python -m RealtimeSTT_server.stt_server`.
+- Multi-channel runner: `PYTHONPATH=. .venv/bin/python -m RealtimeSTT_server.stt_runner --channel name=me pulse_source=@DEFAULT_SOURCE@ --channel name=them pulse_source=@DEFAULT_MONITOR@`;
+  `--list-devices` shows what can be opened.
   Use `-c`/`-d` to pick other ports when testing next to a running server.
 - Benchmark: `PYTHONPATH=. .venv/bin/python tests/asr_engine_benchmark.py <dir of .wav + .txt> --only <label substrings>`.
 
@@ -74,5 +79,14 @@ types sent on the data WebSocket). Prefer it over hardcoding assumptions. See
   `nvidia-*` pip wheels, so do not rely on `LD_LIBRARY_PATH`.
 - The legacy torch.hub Silero loader prompts for trust on stdin and blocks
   headless runs. Leave `silero_use_onnx` unset so the bundled ONNX model is used.
+- PortAudio is not thread-safe to initialize: capture workers in one process
+  (several recorders) must take `audio_input_worker._portaudio_lock` around
+  `PyAudio()`, device probing and stream opens, never across retry sleeps.
+- `PULSE_SOURCE` is process-wide and read when the ALSA `pulse` device opens;
+  `_pulse_source_env` sets it under that lock and restores it. Capture workers
+  are threads on Linux (`start_recorder_worker`), processes elsewhere.
+- PortAudio device indices change between processes, and PipeWire hides a
+  hardware mic while another client records from it. Select inputs by name or
+  Pulse source and read `input_device_info` for what actually opened.
 - Code style: block-style docstrings on public functions and classes, comment
   density like the surrounding code.

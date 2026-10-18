@@ -4,6 +4,20 @@
 
 ### Added
 
+- Added multi-channel transcription: `RealtimeSTT.SharedEngine` loads one
+  model on one inference thread and serves many recorders (finals before
+  partials); `RealtimeSTT.MultiChannelRecorder` runs several inputs with their
+  own VAD/utterance state on those shared engines and emits channel-tagged
+  events with utterance ids and timestamps. See `docs/multichannel.md`.
+- Added `stt-runner`, a JSON-lines child process for embedding programs:
+  channels by device name/index or PulseAudio source, `ready`/`speech_start`/
+  `realtime`/`speech_paused`/`speech_end`/`fullSentence` events, and
+  `pause`/`resume`/`clear`/`set_channel`/`set_parameter`/`get_info`/`shutdown`
+  commands. `--list-devices` lists PortAudio inputs and Pulse sources.
+- `AudioToTextRecorder` accepts `pulse_source` (capture a PulseAudio/PipeWire
+  source such as an output's monitor), accepts a device name for
+  `input_device_index`, and reports the device actually opened through
+  `input_device_info`.
 - Added the `whistle` transcription engine (Cactus Whistle through
   `cactus-needle`, CPU only) and the `whistle` install extra.
 - Added `tests/asr_engine_benchmark.py`, which measures realtime-style latency,
@@ -29,6 +43,11 @@
 
 ### Fixed
 
+- Several recorders in one process no longer crash PortAudio on start
+  (`InitializeHostApis` assertion): capture workers now serialize PortAudio
+  initialization, device probing and stream opens.
+- Corrected the `early_transcription_on_silence` docstring: the value is in
+  seconds, not milliseconds.
 - Microphones that reject 16 kHz (for example USB mics that only support
   48 kHz) no longer silently fall back to the default input device; the stream
   opens at a supported rate and is resampled.

@@ -157,6 +157,9 @@ audio, logging, and executor injection.
   setup links.
 - [Wake words](docs/wake-words.md): Porcupine and OpenWakeWord setup.
 - [External audio](docs/external-audio.md): feeding audio without a microphone.
+- [Multi-channel transcription](docs/multichannel.md): several inputs (mics,
+  output monitors) on one shared model set, and the `stt-runner` child-process
+  protocol for embedding programs.
 - [Testing](docs/testing.md): maintained unit and opt-in golden test workflow.
 - [Test scripts](docs/test-scripts.md): demos, manual tests, regressions, and
   legacy experiments under `tests/`.
@@ -180,6 +183,7 @@ Engine-specific references:
 - [Granite/Qwen Transformers engines](docs/engines/hf-transformers.md)
 - [Cohere Transcribe](docs/engines/cohere.md)
 - [FunASR](docs/engines/funasr.md)
+- [Cactus Whistle](docs/engines/whistle.md)
 
 ## Server Example
 
