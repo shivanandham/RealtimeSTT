@@ -293,6 +293,7 @@ setuptools.setup(
         'console_scripts': [
             'stt-server=RealtimeSTT_server.stt_server:main',
             'stt=RealtimeSTT_server.stt_cli_client:main',
+            'stt-runner=RealtimeSTT_server.stt_runner:main',
             'stt-install-kroko=RealtimeSTT.install_kroko:main',
         ],
     },
