@@ -147,6 +147,8 @@ audio, logging, and executor injection.
 
 ## Documentation
 
+- [Capabilities](docs/capabilities.md): one-page summary of what RealtimeSTT
+  offers, for integrating it from another program.
 - [Quick start](docs/quick-start.md): shortest demos and common recording
   patterns.
 - [Installation](docs/installation.md): platform setup, CUDA notes, and optional

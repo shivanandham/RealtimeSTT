@@ -27,7 +27,7 @@ mono int16 PCM.
 | `example_fastapi_server/` | Multi-session FastAPI server (one recorder per session, shared models). |
 | `tests/unit/` | Fast unit tests, no models or audio hardware needed. |
 | `tests/asr_engine_benchmark.py` | Engine latency/WER benchmark that produces the benchmarks JSON. |
-| `docs/` | `module-map.md` (ownership and side effects), `api-compatibility.md`, `transcription-engines.md`, `engines/*.md`, `installation.md`, `testing.md`. |
+| `docs/` | `capabilities.md` (one-page summary for integrators), `module-map.md` (ownership and side effects), `api-compatibility.md`, `transcription-engines.md`, `engines/*.md`, `installation.md`, `testing.md`. |
 
 ## Running and testing
 
