@@ -178,7 +178,6 @@ class AudioRecorderPublicApiTests(unittest.TestCase):
                 float,
             ),
             ("pulse_source", None, Optional[str]),
-            ("vocabulary", None, Optional[Union[dict, list, str]]),
         ]
 
         self.assertEqual(list(signature.parameters), [item[0] for item in expected])

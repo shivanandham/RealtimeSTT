@@ -124,7 +124,6 @@ def perform_final_transcription(recorder, audio_bytes=None, use_prompt=True):
                     ensure_sentence_ends_with_period=(
                         recorder.ensure_sentence_ends_with_period
                     ),
-                    vocabulary=getattr(recorder, "vocabulary", None),
                 )
                 end_time = time.time()
                 transcription_time = end_time - start_time

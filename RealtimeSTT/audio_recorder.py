@@ -30,7 +30,6 @@ from .core.recording_buffers import (
 )
 from .core.shutdown import shutdown_recorder
 from .core.text_formatting import format_number
-from .core.vocabulary import Vocabulary
 from .core.transcription_api import (
     perform_final_transcription as perform_final_transcription_api,
     text as transcribe_text,
@@ -200,7 +199,6 @@ class AudioToTextRecorder:
                      DEACTIVITY_SILENCE_CONFIRMATION_DURATION
                  ),
                  pulse_source: Optional[str] = None,
-                 vocabulary: Optional[Union[dict, list, str]] = None,
                  ):
         """
         Initializes an audio recorder and  transcription
@@ -260,13 +258,6 @@ class AudioToTextRecorder:
         - ensure_sentence_starting_uppercase (bool, default=True): Ensures
             that every sentence detected by the algorithm starts with an
             uppercase letter.
-        - vocabulary (list, dict or JSON path, default=None): Domain terms
-            the transcript should contain, applied to partial and final text
-            for every engine. A list of terms ("SQL", "Kubernetes") or a dict
-            of term to aliases ({"SQL": ["sequel"], "Node.js": ["node js"]}):
-            aliases and spelled-out acronyms ("s q l") become the term, and
-            close misspellings of longer terms are corrected. Change at
-            runtime with set_vocabulary(). See core/vocabulary.py.
         - ensure_sentence_ends_with_period (bool, default=True): Ensures that
             every sentence that doesn't end with punctuation such as "?", "!"
             ends with a period
@@ -624,7 +615,6 @@ class AudioToTextRecorder:
                 deactivity_silence_confirmation_duration
             ),
             pulse_source=pulse_source,
-            vocabulary=vocabulary,
         )
 
         initialize_recorder(
@@ -736,12 +726,6 @@ class AudioToTextRecorder:
         Interrupts the current recording or transcription flow.
         """
         return abort_recording(self)
-
-    def set_vocabulary(self, terms):
-        """
-        Replaces the vocabulary corrections (list, dict, JSON path, Vocabulary or None).
-        """
-        self.vocabulary = Vocabulary.coerce(terms)
 
     @property
     def input_device_info(self):

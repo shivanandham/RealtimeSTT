@@ -447,13 +447,6 @@ class MultiChannelRecorder:
         for ch in self._select(channel):
             ch.recorder.clear_audio_queue()
 
-    def set_vocabulary(self, terms, channel=None):
-        """
-        Replaces the vocabulary corrections on the channel(s).
-        """
-        for ch in self._select(channel):
-            ch.recorder.set_vocabulary(terms)
-
     def set_parameter(self, name, value, channel=None):
         """
         Sets a recorder attribute (for example post_speech_silence_duration) on the channel(s).

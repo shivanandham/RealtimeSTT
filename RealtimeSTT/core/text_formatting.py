@@ -20,7 +20,6 @@ def preprocess_output(
     preview=False,
     ensure_sentence_starting_uppercase=True,
     ensure_sentence_ends_with_period=True,
-    vocabulary=None,
 ):
     """
     Normalizes recorder output text for display.
@@ -30,12 +29,8 @@ def preprocess_output(
     - preview: Leaves final punctuation unchanged for preview text.
     - ensure_sentence_starting_uppercase: Uppercases the first character.
     - ensure_sentence_ends_with_period: Adds sentence punctuation when needed.
-    - vocabulary: Optional Vocabulary whose term corrections are applied first.
     """
     text = re.sub(r'\s+', ' ', text.strip())
-
-    if vocabulary is not None:
-        text = vocabulary.apply(text)
 
     if ensure_sentence_starting_uppercase:
         if text:
