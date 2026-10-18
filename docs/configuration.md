@@ -40,7 +40,8 @@ recorder = AudioToTextRecorder(
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `input_device_index` | `None` | PyAudio input device index. `None` lets PyAudio choose the default device. |
+| `input_device_index` | `None` | PyAudio input device index, or a device name (exact or case-insensitive substring). `None` lets PyAudio choose the default device. `input_device_info` reports what was actually opened. |
+| `pulse_source` | `None` | PulseAudio/PipeWire source to capture (a microphone source, an output's `.monitor`, `@DEFAULT_SOURCE@`, `@DEFAULT_MONITOR@`). Linux only. |
 | `use_microphone` | `True` | When `False`, audio must be supplied through `feed_audio()`. |
 | `buffer_size` | `512` | Recorder audio buffer size. Changing this can affect VAD behavior. |
 | `sample_rate` | `16000` | Recorder sample rate. WebRTC VAD is sensitive to sample rate changes. |
@@ -54,6 +55,7 @@ recorder = AudioToTextRecorder(
 | --- | --- | --- |
 | `ensure_sentence_starting_uppercase` | `True` | Capitalizes detected sentence starts. |
 | `ensure_sentence_ends_with_period` | `True` | Adds a final period when final text does not end in punctuation. |
+| `vocabulary` | `None` | Domain terms applied to partial and final text on every engine: a list of terms, a dict of term to aliases (`{"SQL": ["sequel"]}`) or a JSON file path. Aliases and spelled-out acronyms become the term; close misspellings of longer terms are corrected. `set_vocabulary()` changes it at runtime. |
 | `spinner` | `True` | Shows the console state spinner. |
 | `level` | `logging.WARNING` | Logger level used by the recorder. |
 | `debug_mode` | `False` | Prints additional debug information. |

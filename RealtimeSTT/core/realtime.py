@@ -626,6 +626,7 @@ def run_realtime_worker(recorder):
                 ensure_sentence_ends_with_period=(
                     self.ensure_sentence_ends_with_period
                 ),
+                vocabulary=getattr(self, "vocabulary", None),
             ),
         )
 
@@ -641,6 +642,7 @@ def run_realtime_worker(recorder):
                 ensure_sentence_ends_with_period=(
                     self.ensure_sentence_ends_with_period
                 ),
+                vocabulary=getattr(self, "vocabulary", None),
             ),
         )
 

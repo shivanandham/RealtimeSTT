@@ -46,6 +46,10 @@ class FakeMulti:
         self.calls.append(("set_channel", spec))
         self.names.add(spec.name)
 
+    def set_vocabulary(self, terms, channel=None):
+        self._check(channel)
+        self.calls.append(("vocab", terms, channel))
+
     def remove_channel(self, name):
         if name in self.names:
             self.names.remove(name)
@@ -140,6 +144,11 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.out[-1], {"type": "ack", "command": "remove_channel", "channel": "guest"})
         self.assertNotIn("guest", self.multi.names)
 
+    def test_set_vocabulary_command(self):
+        self.runner.handle(json.dumps({"command": "set_vocabulary", "terms": {"SQL": ["sequel"]}, "channel": "me"}))
+        self.assertEqual(self.multi.calls, [("vocab", {"SQL": ["sequel"]}, "me")])
+        self.assertEqual(self.out[-1]["type"], "ack")
+
     def test_shutdown_returns_false(self):
         self.assertFalse(self.runner.handle("shutdown"))
         self.assertEqual(self.out[-1], {"type": "ack", "command": "shutdown"})
@@ -184,6 +193,21 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((final.model, final.beam_size, final.engine_options), ("small", 5, {"keywords": ["x"]}))
         self.assertEqual((realtime.model, realtime.beam_size, realtime.engine_options), ("tiny.en", 3, None))
         self.assertEqual([parse_channel(t) for t in args.channel], [ChannelSpec("me", 4)])
+
+    def test_vocabulary_feeds_whisper_prompt_and_whistle_keywords(self):
+        from RealtimeSTT_server.stt_runner import load_vocabulary
+
+        args = self.parse("--device", "cpu", "--keywords", "SQL, JSON")
+        args.vocabulary_object = load_vocabulary(args)
+        args.vocabulary_terms = list(args.vocabulary_object.terms)
+        self.assertEqual(args.vocabulary_terms, ["SQL", "JSON"])
+        self.assertEqual(engine_config(args).initial_prompt, "SQL, JSON")
+        self.assertEqual(recorder_kwargs(args)["vocabulary"].apply("s q l"), "SQL")
+        args.engine = "whistle"
+        self.assertEqual(engine_config(args).engine_options, {"keywords": ["SQL", "JSON"]})
+        self.assertIsNone(engine_config(args).initial_prompt)
+        args.engine, args.initial_prompt = "faster_whisper", "custom"
+        self.assertEqual(engine_config(args).initial_prompt, "custom")
 
     def test_recorder_kwargs_only_include_given_flags(self):
         args = self.parse("--device", "cpu")

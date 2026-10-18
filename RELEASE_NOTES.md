@@ -14,6 +14,11 @@
   `realtime`/`speech_paused`/`speech_end`/`fullSentence` events, and
   `pause`/`resume`/`clear`/`set_channel`/`set_parameter`/`get_info`/`shutdown`
   commands. `--list-devices` lists PortAudio inputs and Pulse sources.
+- Added engine-agnostic vocabulary correction: `AudioToTextRecorder(vocabulary=...)`
+  / `set_vocabulary()`, `stt-runner --vocabulary FILE` / `--keywords` and the
+  `set_vocabulary` command. Aliases ("sequel" -> SQL), spelled-out acronyms
+  ("s q l" -> SQL) and close misspellings of longer terms are corrected in
+  partial and final text for every engine (`RealtimeSTT/core/vocabulary.py`).
 - `AudioToTextRecorder` accepts `pulse_source` (capture a PulseAudio/PipeWire
   source such as an output's monitor), accepts a device name for
   `input_device_index`, and reports the device actually opened through

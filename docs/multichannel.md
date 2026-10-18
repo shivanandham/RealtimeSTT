@@ -53,6 +53,23 @@ Timing flags are forwarded to every channel's recorder when given:
 sentence, uses `--unknown_sentence_detection_pause` (0.7 s) otherwise and
 `--mid_sentence_detection_pause` (2.0 s) after a trailing `...`.
 
+### Vocabulary
+
+`--vocabulary FILE` (JSON: a list of terms, a dict of term to aliases, or
+`{"terms": ..., "fuzzy_threshold": 0.8, "min_fuzzy_length": 5}`) and
+`--keywords "SQL,JSON,Kubernetes"` give the runner the domain terms the
+transcript should contain. The corrections run on partial and final text for
+every engine: an alias ("sequel") or a spelled-out acronym ("s q l", "S.Q.L")
+becomes the term, and close misspellings of longer terms ("kubernetis") are
+fixed. Acronyms are never fuzzy-matched, so "Jason" only becomes "JSON" when
+listed as an alias. Whisper engines additionally receive the terms as their
+initial prompt and Whistle as keywords. `set_vocabulary` changes the terms at
+runtime.
+
+```json
+{"SQL": ["sequel", "ess queue el"], "JSON": ["jason", "jay son"], "Node.js": ["node js", "no js"], "Kubernetes": [], "PostgreSQL": ["postgres"]}
+```
+
 ### Events (stdout)
 
 One JSON object per line. Lines that are not JSON are library noise and can
@@ -95,6 +112,7 @@ Bare words `pause`, `resume`, `clear`, `shutdown` apply to all channels.
 | `set_channel` | `channel`, `device` and/or `pulse_source`, `recorder_kwargs` | Start or replace a channel. Only that channel's capture and VAD restart (well under a second); replies with a `channel` event. |
 | `remove_channel` | `channel` | Stop a channel. |
 | `set_parameter` | `parameter`, `value`, `channel` (optional) | Change a recorder setting at runtime; the allowed names are in `protocol.settable_parameters`. |
+| `set_vocabulary` | `terms` (list, or dict of term to aliases), `channel` (optional) | Replace the vocabulary corrections (see below). |
 | `get_info` | | Reply with an `info` event. |
 | `shutdown` | | Stop everything and exit. Closing stdin does the same. |
 

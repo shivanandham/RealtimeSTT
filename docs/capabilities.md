@@ -81,8 +81,14 @@ where utterances start and end.
   [transcription-engines.md](transcription-engines.md). Measured latency and
   WER per model: [`RealtimeSTT_server/model_benchmarks.json`](../RealtimeSTT_server/model_benchmarks.json)
   (also returned by `stt-server`'s `get_info`).
-- `--initial_prompt` / `--initial_prompt_realtime` bias Whisper engines toward a
-  vocabulary; Parakeet has no prompt and ignores them.
+- Vocabulary (engine-agnostic): `--vocabulary FILE` / `--keywords ...` (library:
+  `vocabulary=` and `set_vocabulary()`) list the domain terms the transcript
+  should contain, optionally with the ways ASR mangles them (`{"SQL":
+  ["sequel"], "JSON": ["jason"]}`). Aliases and spelled-out acronyms become
+  the term and close misspellings of longer terms are corrected, on partial
+  and final text, for every engine. Whisper engines also get the terms as
+  their initial prompt and Whistle as keywords; Parakeet has no prompt, so
+  the text correction is what applies there.
 
 ## Timing controls
 

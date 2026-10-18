@@ -19,6 +19,7 @@ import threading
 
 from RealtimeSTT.core.audio_input_worker import list_input_devices, list_pulse_sources
 from RealtimeSTT.core.model_defaults import apply_device_defaults
+from RealtimeSTT.core.vocabulary import Vocabulary
 from RealtimeSTT.multichannel import ChannelSpec, MultiChannelRecorder, SharedEngine
 from RealtimeSTT.transcription_engines import TranscriptionEngineConfig
 
@@ -77,6 +78,7 @@ PROTOCOL = {
         "set_channel": "Start or replace a channel: channel, device (input index or name substring) and/or pulse_source, recorder_kwargs {}. Only that channel restarts; replies with a channel event.",
         "remove_channel": "Stop a channel: channel.",
         "set_parameter": "Set a recorder setting: parameter (one of settable_parameters), value, channel (optional = all).",
+        "set_vocabulary": "Replace the vocabulary corrections: terms (list, or dict of term to aliases), channel (optional = all). Applied to partial and final text on every engine.",
         "get_info": "Reply with an info event.",
         "shutdown": "Stop everything and exit.",
     },
@@ -172,6 +174,11 @@ def build_parser():
     parser.add_argument("--realtime_batch_size", type=int, default=16)
     parser.add_argument("--initial_prompt", default=None, help="Prompt/vocabulary for the final model.")
     parser.add_argument("--initial_prompt_realtime", default=None, help="Prompt for a separate realtime model.")
+    parser.add_argument("--vocabulary", default=None, metavar="FILE",
+                        help="JSON file of domain terms: a list, a dict of term to aliases, or {\"terms\": ...}. "
+                             "Corrections apply to partial and final text on every engine; Whisper engines also "
+                             "get the terms as initial prompt and Whistle as keywords.")
+    parser.add_argument("--keywords", default=None, help="Comma-separated domain terms (added to --vocabulary).")
     parser.add_argument("--engine_options", default=None, help="JSON object passed to the final engine.")
     parser.add_argument("--rt_engine_options", default=None, help="JSON object passed to a separate realtime engine.")
     parser.add_argument("--faster_whisper_vad_filter", action=argparse.BooleanOptionalAction, default=True)
@@ -195,6 +202,17 @@ def engine_config(args, realtime=False):
     Builds the engine configuration for the final or realtime model.
     """
     options = args.rt_engine_options if realtime else args.engine_options
+    engine_options = json.loads(options) if options else None
+    prompt = (args.initial_prompt_realtime or args.initial_prompt) if realtime else args.initial_prompt
+    terms = list(getattr(args, "vocabulary_terms", None) or [])
+    engine_name = (args.rt_engine or args.engine) if realtime else args.engine
+    if terms:
+        # Engines with their own biasing get the terms too; the text correction runs regardless.
+        if prompt is None and engine_name in ("faster_whisper", "whisper_cpp", "openai_whisper"):
+            prompt = ", ".join(terms)
+        if engine_name == "whistle":
+            engine_options = dict(engine_options or {})
+            engine_options.setdefault("keywords", terms)
     return TranscriptionEngineConfig(
         model=args.rt_model if realtime else args.model,
         download_root=args.download_root,
@@ -202,11 +220,25 @@ def engine_config(args, realtime=False):
         gpu_device_index=args.gpu_device_index,
         device=args.device,
         beam_size=args.beam_size_realtime if realtime else args.beam_size,
-        initial_prompt=(args.initial_prompt_realtime or args.initial_prompt) if realtime else args.initial_prompt,
+        initial_prompt=prompt,
         batch_size=args.realtime_batch_size if realtime else args.batch_size,
         vad_filter=args.faster_whisper_vad_filter,
-        engine_options=json.loads(options) if options else None,
+        engine_options=engine_options,
     )
+
+
+def load_vocabulary(args):
+    """
+    Builds the Vocabulary from --vocabulary and --keywords, or None.
+    """
+    vocab = Vocabulary.from_json(args.vocabulary) if args.vocabulary else None
+    keywords = [k.strip() for k in (args.keywords or "").split(",") if k.strip()]
+    if keywords:
+        terms = dict(vocab.terms) if vocab else {}
+        for keyword in keywords:
+            terms.setdefault(keyword, [])
+        vocab = Vocabulary(terms, **({"fuzzy_threshold": vocab.fuzzy_threshold, "min_fuzzy_length": vocab.min_fuzzy_length} if vocab else {}))
+    return vocab
 
 
 def recorder_kwargs(args):
@@ -224,6 +256,9 @@ def recorder_kwargs(args):
             kwargs[name] = value
     if args.silero_deactivity_detection:
         kwargs["silero_deactivity_detection"] = True
+    vocab = getattr(args, "vocabulary_object", None)
+    if vocab is not None:
+        kwargs["vocabulary"] = vocab
     return kwargs
 
 
@@ -385,6 +420,9 @@ class Runner:
                     raise ValueError(f"parameter {parameter!r} is not settable; see settable_parameters")
                 self.recorder.set_parameter(parameter, command.get("value"), channel)
                 self._reply({"type": "ack", "command": name, "parameter": parameter, "channel": channel}, request_id)
+            elif name == "set_vocabulary":
+                self.recorder.set_vocabulary(command.get("terms"), channel)
+                self._reply({"type": "ack", "command": name, "channel": channel}, request_id)
             elif name == "get_info":
                 self._reply({"type": "info", **self.info()}, request_id)
             elif name == "shutdown":
@@ -409,6 +447,8 @@ def main(argv=None):
         sys.stdout.write(json.dumps(devices, indent=1) + "\n")
         return 0
     apply_device_defaults(args)
+    args.vocabulary_object = load_vocabulary(args)
+    args.vocabulary_terms = list(args.vocabulary_object.terms) if args.vocabulary_object else []
 
     # Library prints (shutdown notices, model timings) must not corrupt the event stream.
     out = sys.stdout
@@ -451,7 +491,8 @@ def main(argv=None):
         "realtime_model": None if realtime is None else (args.model if realtime is final else args.rt_model),
         "device": args.device, "compute_type": args.compute_type, "language": args.lang,
         "silence_timing": args.silence_timing,
-        "recorder": {k: v for k, v in recorder_kwargs(args).items() if k != "level"},
+        "vocabulary": args.vocabulary_object.to_dict() if args.vocabulary_object else None,
+        "recorder": {k: v for k, v in recorder_kwargs(args).items() if k not in ("level", "vocabulary")},
     }
     timing = None
     if args.silence_timing:
