@@ -25,6 +25,10 @@ PARAKEET_MODEL = 'nvidia/parakeet-tdt-0.6b-v2'
 SHERPA_PARAKEET_MODEL = 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8'
 
 
+# Engines that serve realtime partials themselves unless a realtime model is given.
+SELF_REALTIME_ENGINES = ('parakeet', 'sherpa_onnx_parakeet')
+
+
 def apply_device_defaults(args):
     """
     Fills in device, engine, model and compute-type defaults on an argparse namespace.
@@ -50,6 +54,10 @@ def apply_device_defaults(args):
             # A 5 s partial takes ~150-230 ms, and tiny realtime models missed too many words.
             args.use_main_model_for_realtime = True
     args.engine = args.engine or 'faster_whisper'
+    if (args.engine in SELF_REALTIME_ENGINES and args.rt_engine is None and args.rt_model is None
+            and args.use_main_model_for_realtime is None):
+        # Parakeet partials are fast and more accurate than a separate small model.
+        args.use_main_model_for_realtime = True
     args.use_main_model_for_realtime = bool(args.use_main_model_for_realtime)
     if args.engine == 'faster_whisper':
         args.model = args.model or model

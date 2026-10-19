@@ -200,7 +200,7 @@ control_connections = set()
 data_connections = set()
 data_clients = {}  # data websocket -> what that client is sending us
 
-MODEL_BENCHMARKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_benchmarks.json")
+from RealtimeSTT_server.model_catalog import MODEL_BENCHMARKS_PATH, model_catalog  # noqa: E402,F401
 
 
 def _json_safe(value):
@@ -254,8 +254,7 @@ def build_server_info():
     """
     Describes the running server for other programs: active models, audio input, config and benchmarks.
     """
-    with open(MODEL_BENCHMARKS_PATH, encoding="utf-8") as f:
-        benchmarks = json.load(f)
+    catalog = model_catalog()
     engine = getattr(recorder, "transcription_engine", None) or "faster_whisper"
     return {
         "server": {
@@ -287,8 +286,9 @@ def build_server_info():
             if not callable(value) and _json_safe(value) is not None
         },
         "protocol": dict(PROTOCOL, allowed_parameters=allowed_parameters, allowed_methods=allowed_methods),
-        "benchmark": benchmarks["benchmark"],
-        "models": benchmarks["models"],
+        "benchmark": catalog["benchmark"],
+        "models": catalog["models"],
+        "host": catalog["host"],
     }
 
 control_queue = asyncio.Queue()

@@ -29,6 +29,7 @@ SAMPLE_RATE = 16000
 
 _FINAL_PRIORITY = 0
 _REALTIME_PRIORITY = 1
+_DRAIN_PRIORITY = 2
 _STOP = object()
 
 
@@ -188,12 +189,15 @@ class SharedEngine:
             "lanes": {kind: stats.snapshot() for kind, stats in self.stats.items()},
         }
 
-    def close(self):
+    def close(self, drain=False):
         """
-        Stops the inference thread; pending requests fail.
+        Stops the inference thread; pending requests fail unless drain is set.
+
+        With drain=True, requests already queued are served first (used when
+        an engine is swapped out while channels keep running).
         """
-        self._queue.put((-1, -1, _STOP))
-        self._thread.join(timeout=10)
+        self._queue.put((_DRAIN_PRIORITY if drain else -1, -1, _STOP))
+        self._thread.join(timeout=60 if drain else 10)
 
 
 class _Lane:
@@ -211,6 +215,35 @@ class _Lane:
     def transcribe(self, audio, language=None, use_prompt=True):
         """
         Transcribes through the shared engine.
+        """
+        return self.engine.transcribe(audio, language=language, use_prompt=use_prompt, kind=self.kind)
+
+
+class _SwitchableLane:
+    """
+    Routes a recorder's calls to whichever engine currently serves the lane.
+
+    Recorders keep one lane object for their lifetime, so
+    MultiChannelRecorder.set_engines can swap models without restarting channels.
+    """
+
+    def __init__(self, owner, kind):
+        """
+        Binds the lane to its MultiChannelRecorder and kind.
+        """
+        self.owner = owner
+        self.kind = kind
+
+    @property
+    def engine(self):
+        """
+        Returns the SharedEngine serving this lane now.
+        """
+        return self.owner.final_engine if self.kind == "final" else self.owner.realtime_engine
+
+    def transcribe(self, audio, language=None, use_prompt=True):
+        """
+        Transcribes through the current engine.
         """
         return self.engine.transcribe(audio, language=language, use_prompt=use_prompt, kind=self.kind)
 
@@ -334,7 +367,7 @@ class MultiChannelRecorder:
             spinner=False,
             input_device_index=spec.input_device_index,
             pulse_source=spec.pulse_source,
-            transcription_executor=self.final_engine.lane("final"),
+            transcription_executor=_SwitchableLane(self, "final"),
             use_main_model_for_realtime=False,
             on_recording_start=lambda: self._on_recording_start(channel),
             on_recording_stop=lambda: self._on_recording_stop(channel),
@@ -345,7 +378,7 @@ class MultiChannelRecorder:
         if self.realtime_engine is not None:
             kwargs.update(
                 enable_realtime_transcription=True,
-                realtime_transcription_executor=self.realtime_engine.lane("realtime"),
+                realtime_transcription_executor=_SwitchableLane(self, "realtime"),
                 on_realtime_transcription_update=lambda text: self._emit(channel, "realtime", text=text),
                 on_realtime_transcription_stabilized=lambda text: self._emit(
                     channel, "realtime_stabilized", text=text
@@ -387,6 +420,33 @@ class MultiChannelRecorder:
             logger.exception("Channel %s shutdown failed", channel.spec.name)
         if channel.thread is not None and channel.thread is not threading.current_thread():
             channel.thread.join(timeout=10)
+
+    def set_engines(self, final_engine=None, realtime_engine=None):
+        """
+        Switches the engines serving the final and/or realtime lane.
+
+        Running channels use the new engines from their next request on.
+        Engines no longer serving any lane are closed in the background once
+        their queued requests finish. The realtime lane can only be switched
+        when the channels were started with a realtime engine.
+        """
+        with self._lock:
+            if realtime_engine is not None and self.realtime_engine is None:
+                raise ValueError("realtime transcription is disabled")
+            previous = [self.final_engine, self.realtime_engine]
+            if final_engine is not None:
+                self.final_engine = final_engine
+            if realtime_engine is not None:
+                self.realtime_engine = realtime_engine
+            unused = []
+            for engine in previous:
+                if (engine is not None and engine is not self.final_engine
+                        and engine is not self.realtime_engine and engine not in unused):
+                    unused.append(engine)
+        for engine in unused:
+            threading.Thread(target=engine.close, kwargs={"drain": True},
+                             name="RealtimeSTT-SharedEngine-close", daemon=True).start()
+        return unused
 
     def shutdown(self):
         """

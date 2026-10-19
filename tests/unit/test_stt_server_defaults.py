@@ -74,6 +74,13 @@ class SttServerDefaultsTests(unittest.TestCase):
         self.assertEqual((whisper_rt.engine, whisper_rt.rt_engine, whisper_rt.rt_model),
                          ("sherpa_onnx_parakeet", "faster_whisper", "base.en"))
 
+    def test_explicit_parakeet_serves_realtime_too(self):
+        with no_nemo:
+            sherpa = apply_device_defaults(args(device="cpu", engine="sherpa_onnx_parakeet", model="x"))
+            parakeet = apply_device_defaults(args(device="cuda", engine="parakeet"))
+        self.assertEqual((sherpa.use_main_model_for_realtime, sherpa.rt_engine), (True, None))
+        self.assertEqual((parakeet.use_main_model_for_realtime, parakeet.rt_engine), (True, None))
+
     def test_gpu_with_nemo_uses_parakeet_for_final_and_realtime(self):
         with patch("torch.cuda.is_available", return_value=True), with_nemo:
             resolved = apply_device_defaults(args())

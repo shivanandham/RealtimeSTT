@@ -66,7 +66,7 @@ channel; the partials and the final of one utterance share it) and `t_ms`
 
 | `type` | When | Extra fields |
 | --- | --- | --- |
-| `ready` | Listening. | `channels` (with `input_device` actually opened), `input_devices`, `pulse_sources`, `engines`, `settings`, `protocol` |
+| `ready` | Listening. | `channels` (with `input_device` actually opened), `input_devices`, `pulse_sources`, `engines`, `active`, `benchmark`, `models`, `host`, `settings`, `protocol` |
 | `speech_start` | Voice detected; new `utterance_id`. | `speech_start_ms` |
 | `realtime` | Partial text, re-transcribed from the utterance start. | `text` |
 | `realtime_stabilized` | Partial whose prefix is unlikely to change. | `text` |
@@ -76,6 +76,7 @@ channel; the partials and the final of one utterance share it) and `t_ms`
 | `transcription_start` | Final transcription running. | `audio_s` |
 | `fullSentence` | Final text. | `text`, `speech_start_ms`, `speech_end_ms`, `latency_ms` (since `speech_end`) |
 | `channel` | Reply to `set_channel`. | `input_device` |
+| `engine` | Progress of `set_engine`, `set_hotwords`, `set_initial_prompt`: `status` `loading`, then `ready`. | `command`, `status`, `lanes` (lanes whose engine changed), `active` |
 | `info` | Reply to `get_info`; same shape as `ready`. | |
 | `ack` | Command accepted. | `command`, `channel` |
 | `warning` | Non-fatal problem, e.g. a requested device could not be opened and the default was used. | `channel`, `message` |
@@ -100,7 +101,50 @@ Bare words `pause`, `resume`, `clear`, `shutdown` apply to all channels.
 | `remove_channel` | `channel` | Stop a channel. |
 | `set_parameter` | `parameter`, `value`, `channel` (optional) | Change a recorder setting at runtime; the allowed names are in `protocol.settable_parameters`. |
 | `get_info` | | Reply with an `info` event. |
+| `set_engine` | `lane` (`final` or `realtime`), then `engine` and/or `model`, or `default: true`, or `same_as_final: true` (realtime only) | Switch that lane's model without restarting channels; replies with `engine` events or an `error`. |
+| `set_hotwords` | `hotwords` (string, list, file path or preset name such as `software`; `null` clears) | Replace the sherpa-onnx Parakeet hotwords; affected models reload. |
+| `set_initial_prompt` | `initial_prompt` (string or `null`), `lane` (default `final`) | Replace the Whisper-style prompt; applied without a reload. |
 | `shutdown` | | Stop everything and exit. Closing stdin does the same. |
+
+### Models and switching them at runtime
+
+`ready` and `info` describe the models:
+
+- `active`: what is running. `transcription_engine`, `model`,
+  `realtime_transcription_engine`, `realtime_model`,
+  `use_main_model_for_realtime`, `enable_realtime_transcription`, `device`,
+  `compute_type`, `language`, `hotwords`, `initial_prompt`,
+  `initial_prompt_realtime`; `choices` (each lane's mode: `default`,
+  `explicit` with `engine`/`model`, `same_as_final` or `off`); `defaults`
+  (what `default` resolves to now, for example
+  `{"final": {"engine": "sherpa_onnx_parakeet", "model": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"}, "realtime": {"same_as_final": true}}`);
+  `loading` (lanes whose new model is still loading).
+- `models`: the rows of `RealtimeSTT_server/model_benchmarks.json` (latency,
+  WER, `default_for`, `notes`), each with `installed` (the engine's package is
+  importable in the runner's Python) and `measured_on_this_host` (the row's
+  hardware matches `host`). `benchmark` describes the measurement.
+- `host`: `cpu` and `gpu` names of this machine.
+
+`set_engine` loads the new model while the old one keeps transcribing, then
+swaps it in between requests; the replaced model is unloaded once its queued
+work is done. Requests run one at a time in order.
+
+```
+> {"command": "set_engine", "lane": "final", "engine": "faster_whisper", "model": "small.en", "request_id": 1}
+< {"type": "engine", "status": "loading", "command": "set_engine", "lanes": ["final", "realtime"], "active": {..., "loading": {"final": {...}, "realtime": {...}}}, "request_id": 1}
+< {"type": "engine", "status": "ready", "command": "set_engine", "lanes": ["final", "realtime"], "active": {...}, "request_id": 1}
+> {"command": "set_engine", "lane": "realtime", "same_as_final": true, "request_id": 2}
+> {"command": "set_engine", "lane": "final", "default": true, "request_id": 3}
+```
+
+A realtime lane left on `default` is re-resolved when the final model
+changes: it shares a Parakeet final model and gets faster-whisper `tiny.en`
+(CPU) or `small.en` (GPU) next to a Whisper one. An engine whose package is
+not installed is rejected at once; a model that fails to load replies with an
+`error` (with `command` and `active`) and the old models stay. Hotwords and
+prompts carry over to the new models. `--engine_options` and
+`--rt_engine_options` only apply while the lane runs the engine they were
+given for.
 
 ## Python API
 

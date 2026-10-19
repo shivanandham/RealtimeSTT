@@ -4,6 +4,14 @@
 
 ### Added
 
+- `stt-runner` can switch models at runtime: `set_engine` (per lane, with
+  `default` and `same_as_final`), `set_hotwords` and `set_initial_prompt`
+  stdin commands, replied to with `engine` events. Channels keep running and
+  the old model keeps transcribing while the new one loads.
+- `stt-runner`'s `ready` and `info` events now carry `active` (resolved
+  models, lane choices and defaults), `benchmark`, `models` and `host`. Model
+  rows, also in `stt-server`'s `get_info`, are marked `installed` and
+  `measured_on_this_host`.
 - Added `--hotwords` to `stt-server` and `stt-runner`, and a `hotwords` engine
   option for `sherpa_onnx_parakeet` (list, comma-separated string or file).
   It biases Parakeet's beam search towards domain terms such as JSON, SQL or
@@ -39,6 +47,10 @@
 
 ### Changed
 
+- An explicitly chosen `parakeet` or `sherpa_onnx_parakeet` final engine now
+  also serves realtime partials in `stt-server` and `stt-runner` unless a
+  realtime engine or model is given (previously faster-whisper `tiny.en` /
+  `small.en` was loaded next to it).
 - `stt-server` now defaults to `--device auto`. On GPU it uses
   `nvidia/parakeet-tdt-0.6b-v2` for final and realtime transcription when
   NVIDIA NeMo is installed and the language is English, otherwise

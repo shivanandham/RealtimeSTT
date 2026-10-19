@@ -11,8 +11,11 @@ All channels share one loaded model set (see RealtimeSTT.multichannel).
 """
 
 import argparse
+import copy
+import dataclasses
 import json
 import logging
+import queue
 import signal
 import sys
 import threading
@@ -20,7 +23,8 @@ import threading
 from RealtimeSTT.core.audio_input_worker import list_input_devices, list_pulse_sources
 from RealtimeSTT.core.model_defaults import apply_device_defaults, hotword_options
 from RealtimeSTT.multichannel import ChannelSpec, MultiChannelRecorder, SharedEngine
-from RealtimeSTT.transcription_engines import TranscriptionEngineConfig
+from RealtimeSTT.transcription_engines import TranscriptionEngineConfig, engine_installed, engine_package
+from RealtimeSTT_server.model_catalog import model_catalog
 
 
 # Recorder settings a client may change at runtime with set_parameter.
@@ -54,7 +58,7 @@ PROTOCOL = {
     "stdout": "One JSON object per line. Lines that are not JSON are library noise and can be ignored.",
     "common_fields": {"channel": "channel name", "utterance_id": "per channel; partials and the final of one utterance share it", "t_ms": "wall clock, ms"},
     "events": {
-        "ready": "Runner is listening. Carries channels (with the input device actually opened), input_devices (PortAudio inputs; pick by name), pulse_sources (PulseAudio/PipeWire mics and monitors for pulse_source), engines, settings and this protocol.",
+        "ready": "Runner is listening. Carries channels (with the input device actually opened), input_devices (PortAudio inputs; pick by name), pulse_sources (PulseAudio/PipeWire mics and monitors for pulse_source), engines, active (resolved models, choices, defaults, loading), benchmark, models (benchmarked models with installed and measured_on_this_host), host, settings and this protocol.",
         "speech_start": "Voice detected; a new utterance_id begins. speech_start_ms.",
         "realtime": "Partial text of the current utterance (text). Re-transcribed from the utterance start on each update.",
         "realtime_stabilized": "Partial text whose prefix is unlikely to change (text).",
@@ -64,10 +68,11 @@ PROTOCOL = {
         "transcription_start": "Final transcription running (audio_s = utterance length).",
         "fullSentence": "Final text (text, speech_start_ms, speech_end_ms, latency_ms since speech_end).",
         "channel": "Reply to set_channel: channel, input_device.",
+        "engine": "Progress of set_engine / set_hotwords / set_initial_prompt: status 'loading' (new models loading; the old ones keep transcribing) then 'ready', with command, lanes (lanes whose engine changed) and active.",
         "info": "Reply to get_info.",
         "ack": "Command accepted (command, channel?).",
         "warning": "Non-fatal problem (channel?, message).",
-        "error": "Failed command or fatal startup problem (message, request_id?).",
+        "error": "Failed command or fatal startup problem (message, request_id?; command and active for a failed set_engine / set_hotwords / set_initial_prompt, whose old engines keep running).",
     },
     "stdin": {
         "format": "One JSON object per line: {\"command\": ..., \"channel\": optional, \"request_id\": optional, echoed back}. Bare words pause/resume/clear/shutdown apply to all channels.",
@@ -78,6 +83,9 @@ PROTOCOL = {
         "remove_channel": "Stop a channel: channel.",
         "set_parameter": "Set a recorder setting: parameter (one of settable_parameters), value, channel (optional = all).",
         "get_info": "Reply with an info event.",
+        "set_engine": "Switch a lane's model without restarting channels: lane 'final' or 'realtime', then engine and/or model, or default: true (the runner's choice for this device and language), or same_as_final: true (realtime only). Replies with engine events, or error.",
+        "set_hotwords": "Replace the hotwords (sherpa-onnx Parakeet): hotwords as a comma-separated string, list, file path or preset name ('software'); null clears. Affected models reload; replies with engine events.",
+        "set_initial_prompt": "Replace the Whisper-style initial_prompt: initial_prompt (string or null), lane 'final' or 'realtime' (default final; realtime only applies to a separate realtime model). Takes effect immediately; replies with an engine event.",
         "shutdown": "Stop everything and exit.",
     },
     "settable_parameters": list(SETTABLE_PARAMETERS),
@@ -277,12 +285,263 @@ class SilenceTiming:
         return self.unknown
 
 
+class EngineSwitcher:
+    """
+    Resolves the final and realtime model choices and swaps engines at runtime.
+
+    A lane's choice has a mode: "default" (what the runner picks for this
+    device and language, as if no -m/-r were given), "explicit" (engine and/or
+    model), "same_as_final" (realtime only: share the final model) or "off"
+    (realtime disabled at startup). Requests run one at a time on a worker
+    thread; the old engine keeps transcribing until the new one has loaded.
+    """
+
+    def __init__(self, base_args, resolved_args, write, engine_factory=SharedEngine):
+        """
+        Takes the arguments as parsed (None = default) and as resolved at startup.
+        """
+        self.base_args = copy.copy(base_args)
+        self.args = resolved_args
+        self.write = write
+        self.engine_factory = engine_factory
+        self.recorder = None
+        self.loading = {}
+        self.startup_engines = (resolved_args.engine, resolved_args.rt_engine or resolved_args.engine)
+        base = self.base_args
+        self.choices = {
+            "final": (self._explicit(base.engine, base.model) if base.engine or base.model else {"mode": "default"}),
+            "realtime": (
+                {"mode": "off"} if base.no_realtime
+                else {"mode": "same_as_final"} if base.use_main_model_for_realtime
+                else self._explicit(base.rt_engine, base.rt_model) if base.rt_engine or base.rt_model
+                else {"mode": "default"}
+            ),
+        }
+        self._jobs = queue.Queue()
+        self._lock = threading.Lock()
+        threading.Thread(target=self._work, name="stt-runner-engine-switch", daemon=True).start()
+
+    @staticmethod
+    def _explicit(engine, model):
+        """
+        Returns an explicit lane choice.
+        """
+        return {"mode": "explicit", "engine": engine, "model": model}
+
+    def resolve(self, choices, base=None):
+        """
+        Returns resolved arguments for the given lane choices, as apply_device_defaults would pick them.
+        """
+        a = copy.copy(base or self.base_args)
+        a.device = self.args.device
+        final, realtime = choices["final"], choices["realtime"]
+        a.engine, a.model = (final["engine"], final["model"]) if final["mode"] == "explicit" else (None, None)
+        a.rt_engine = a.rt_model = a.use_main_model_for_realtime = None
+        if realtime["mode"] == "explicit":
+            a.rt_engine, a.rt_model = realtime["engine"], realtime["model"]
+        elif realtime["mode"] == "same_as_final":
+            a.use_main_model_for_realtime = True
+        a.no_realtime = realtime["mode"] == "off"
+        apply_device_defaults(a)
+        # --engine_options / --rt_engine_options were written for the startup engines.
+        if a.engine != self.startup_engines[0]:
+            a.engine_options = None
+        if (a.rt_engine or a.engine) != self.startup_engines[1]:
+            a.rt_engine_options = None
+        return a
+
+    def defaults(self):
+        """
+        Returns what "default" resolves to for each lane right now.
+        """
+        a = self.resolve({"final": {"mode": "default"}, "realtime": self.choices["realtime"]})
+        r = self.resolve({"final": self.choices["final"], "realtime": {"mode": "default"}})
+        realtime = ({"same_as_final": True} if r.use_main_model_for_realtime
+                    else {"engine": r.rt_engine or r.engine, "model": r.rt_model})
+        return {"final": {"engine": a.engine, "model": a.model}, "realtime": realtime}
+
+    def active(self):
+        """
+        Describes the engines in use, the lane choices, the defaults and any model still loading.
+        """
+        multi = self.recorder
+        final = multi.final_engine if multi is not None else None
+        realtime = multi.realtime_engine if multi is not None else None
+        return {
+            "transcription_engine": final.engine_name if final else self.args.engine,
+            "model": final.config.model if final else self.args.model,
+            "realtime_transcription_engine": realtime.engine_name if realtime else None,
+            "realtime_model": realtime.config.model if realtime else None,
+            "use_main_model_for_realtime": realtime is not None and realtime is final,
+            "enable_realtime_transcription": realtime is not None,
+            "device": self.args.device,
+            "compute_type": final.config.compute_type if final else self.args.compute_type,
+            "language": self.args.lang,
+            "hotwords": self.base_args.hotwords,
+            "initial_prompt": self.base_args.initial_prompt,
+            "initial_prompt_realtime": self.base_args.initial_prompt_realtime,
+            "choices": copy.deepcopy(self.choices),
+            "defaults": self.defaults(),
+            "loading": copy.deepcopy(self.loading),
+        }
+
+    def submit(self, command):
+        """
+        Validates a set_engine / set_hotwords / set_initial_prompt command and queues it.
+        """
+        name = command.get("command")
+        lanes, updates = {}, {}
+        if name == "set_engine":
+            lane = command.get("lane")
+            if lane not in ("final", "realtime"):
+                raise ValueError("lane must be 'final' or 'realtime'")
+            if lane == "realtime" and self.choices["realtime"]["mode"] == "off":
+                raise ValueError("realtime transcription is disabled (--no-realtime)")
+            if command.get("default"):
+                lanes[lane] = {"mode": "default"}
+            elif command.get("same_as_final"):
+                if lane != "realtime":
+                    raise ValueError("same_as_final applies to the realtime lane")
+                lanes[lane] = {"mode": "same_as_final"}
+            else:
+                engine, model = command.get("engine"), command.get("model")
+                if not engine and not model:
+                    raise ValueError("set_engine needs engine and/or model, default: true or same_as_final: true")
+                if engine and not engine_installed(engine):
+                    raise ValueError(f"engine {engine!r} needs the {engine_package(engine)!r} package, "
+                                     "which is not installed in the runner's Python")
+                lanes[lane] = self._explicit(engine, model)
+        elif name == "set_hotwords":
+            updates["hotwords"] = command.get("hotwords") or None
+        elif name == "set_initial_prompt":
+            lane = command.get("lane") or "final"
+            if lane not in ("final", "realtime"):
+                raise ValueError("lane must be 'final' or 'realtime'")
+            updates["initial_prompt" if lane == "final" else "initial_prompt_realtime"] = command.get("initial_prompt") or None
+        else:
+            raise ValueError(f"unknown command {name!r}")
+        self._jobs.put((name, lanes, updates, command.get("request_id")))
+
+    def _reply(self, event, request_id):
+        """
+        Writes an event, echoing the request id when given.
+        """
+        if request_id is not None:
+            event["request_id"] = request_id
+        self.write(event)
+
+    def _work(self):
+        """
+        Applies queued switch requests one at a time.
+        """
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            name, lanes, updates, request_id = job
+            try:
+                self._apply(name, lanes, updates, request_id)
+            except Exception as exc:
+                logging.getLogger("realtimestt").exception("%s failed", name)
+                with self._lock:
+                    self.loading = {}
+                self._reply({"type": "error", "command": name, "message": str(exc), "active": self.active()},
+                            request_id)
+
+    @staticmethod
+    def _same(engine, name, config):
+        """
+        Reports whether a loaded engine already matches an engine name and configuration.
+        """
+        return engine is not None and engine.engine_name == name and engine.config == config
+
+    def _reuse(self, candidates, name, config, own, prompts):
+        """
+        Returns a loaded engine matching name/config, or None.
+
+        own (the engine serving this lane now) is also reused when only its
+        initial_prompt differs: engines read the prompt on every call, so the
+        new prompt is queued in prompts and set without a reload.
+        """
+        for engine in candidates:
+            if self._same(engine, name, config):
+                return engine
+        if (own is not None and own.engine_name == name
+                and dataclasses.replace(own.config, initial_prompt=config.initial_prompt) == config):
+            prompts.append((own, config.initial_prompt))
+            return own
+        return None
+
+    def _apply(self, name, lanes, updates, request_id):
+        """
+        Loads whatever the new choices need, then swaps it in and reports the result.
+        """
+        multi = self.recorder
+        choices = {**copy.deepcopy(self.choices), **lanes}
+        base = copy.copy(self.base_args)
+        for key, value in updates.items():
+            setattr(base, key, value)
+        a = self.resolve(choices, base)
+
+        current = [multi.final_engine, multi.realtime_engine]
+        new, changed, prompts = [], [], []
+        final_config = engine_config(a)
+        final = self._reuse(current, a.engine, final_config, multi.final_engine, prompts)
+        if final is None:
+            final = self.engine_factory(a.engine, final_config)
+            new.append(final)
+        if final is not multi.final_engine:
+            changed.append("final")
+        realtime = None
+        if choices["realtime"]["mode"] != "off":
+            if a.use_main_model_for_realtime:
+                realtime = final
+            else:
+                realtime_name, realtime_config = a.rt_engine or a.engine, engine_config(a, realtime=True)
+                # A realtime engine shared with the final lane must not take the realtime prompt.
+                own = multi.realtime_engine if multi.realtime_engine is not multi.final_engine else None
+                realtime = self._reuse(current + [final], realtime_name, realtime_config, own, prompts)
+                if realtime is None:
+                    realtime = self.engine_factory(realtime_name, realtime_config)
+                    new.append(realtime)
+            if realtime is not multi.realtime_engine:
+                changed.append("realtime")
+
+        if new:
+            with self._lock:
+                self.loading = {lane: {"engine": engine.engine_name, "model": engine.config.model}
+                                for lane, engine in (("final", final), ("realtime", realtime)) if engine in new}
+            self._reply({"type": "engine", "status": "loading", "command": name, "lanes": changed,
+                         "active": self.active()}, request_id)
+            try:
+                for engine in new:
+                    engine.wait_ready()
+            except Exception:
+                for engine in new:
+                    threading.Thread(target=engine.close, daemon=True).start()
+                raise
+
+        with self._lock:
+            for engine, prompt in prompts:
+                engine.config.initial_prompt = prompt
+            multi.set_engines(final_engine=final, realtime_engine=realtime)
+            self.choices, self.base_args, self.args, self.loading = choices, base, a, {}
+        self._reply({"type": "engine", "status": "ready", "command": name, "lanes": changed,
+                     "active": self.active()}, request_id)
+
+    def close(self):
+        """
+        Stops the worker thread.
+        """
+        self._jobs.put(None)
+
+
 class Runner:
     """
     Routes recorder events to stdout and stdin commands to the recorder.
     """
 
-    def __init__(self, recorder, write, silence_timing=None, settings=None, ready_timeout=15.0):
+    def __init__(self, recorder, write, silence_timing=None, settings=None, ready_timeout=15.0, switcher=None):
         """
         Binds the runner to a MultiChannelRecorder (may be set later) and an event writer.
         """
@@ -291,6 +550,7 @@ class Runner:
         self.silence_timing = silence_timing
         self.settings = settings or {}
         self.ready_timeout = ready_timeout
+        self.switcher = switcher
 
     def on_event(self, event):
         """
@@ -308,13 +568,17 @@ class Runner:
         """
         Describes the running setup.
         """
-        return {
+        info = {
             **self.recorder.info(),
             "input_devices": self.list_devices(),
             "pulse_sources": list_pulse_sources(),
             "settings": self.settings,
-            "protocol": PROTOCOL,
         }
+        if self.switcher is not None:
+            info["active"] = self.switcher.active()
+        info.update(model_catalog())
+        info["protocol"] = PROTOCOL
+        return info
 
     @staticmethod
     def list_devices():
@@ -391,6 +655,10 @@ class Runner:
                 self._reply({"type": "ack", "command": name, "parameter": parameter, "channel": channel}, request_id)
             elif name == "get_info":
                 self._reply({"type": "info", **self.info()}, request_id)
+            elif name in ("set_engine", "set_hotwords", "set_initial_prompt"):
+                if self.switcher is None:
+                    raise ValueError(f"{name} is not available")
+                self.switcher.submit(command)
             elif name == "shutdown":
                 self._reply({"type": "ack", "command": name}, request_id)
                 return False
@@ -412,6 +680,7 @@ def main(argv=None):
         devices = {"input_devices": Runner.list_devices(), "pulse_sources": list_pulse_sources()}
         sys.stdout.write(json.dumps(devices, indent=1) + "\n")
         return 0
+    base_args = copy.copy(args)
     apply_device_defaults(args)
 
     # Library prints (shutdown notices, model timings) must not corrupt the event stream.
@@ -463,9 +732,10 @@ def main(argv=None):
     if args.silence_timing:
         timing = SilenceTiming(args.end_of_sentence_detection_pause, args.unknown_sentence_detection_pause,
                                args.mid_sentence_detection_pause)
-    runner = Runner(None, write, timing, settings, args.ready_timeout)
+    switcher = EngineSwitcher(base_args, args, write)
+    runner = Runner(None, write, timing, settings, args.ready_timeout, switcher)
     recorder = MultiChannelRecorder(channels, runner.on_event, final, realtime, **recorder_kwargs(args))
-    runner.recorder = recorder
+    runner.recorder = switcher.recorder = recorder
 
     inputs = recorder.wait_for_inputs(args.ready_timeout)
     write({"type": "ready", **runner.info()})
@@ -487,6 +757,7 @@ def main(argv=None):
     threading.Thread(target=read_commands, name="stt-runner-stdin", daemon=True).start()
     while not stop.wait(0.5):
         pass
+    switcher.close()
     recorder.shutdown()
     return 0
 

@@ -2,6 +2,7 @@
 Creates transcription engine instances by configured backend name.
 """
 
+import importlib.util
 from importlib import import_module
 
 from .base import TranscriptionEngineConfig, UnsupportedTranscriptionEngineError
@@ -41,6 +42,50 @@ ENGINE_CLASS_PATHS = {
 }
 
 
+# Package each engine module imports at load time (None: nothing beyond the core install).
+ENGINE_MODULE_PACKAGES = {
+    ".faster_whisper_engine": "faster_whisper",
+    ".whisper_cpp_engine": "pywhispercpp",
+    ".openai_whisper_engine": "whisper",
+    ".openai_api_engine": None,
+    ".parakeet_engine": "nemo",
+    ".cohere_transcribe_engine": "transformers",
+    ".granite_speech_engine": "transformers",
+    ".qwen3_asr_engine": "qwen_asr",
+    ".omnilingual_asr_engine": "omnilingual_asr",
+    ".moonshine_engine": "transformers",
+    ".sherpa_onnx_engine": "sherpa_onnx",
+    ".kroko_onnx_engine": "kroko_onnx",
+    ".funasr_engine": "funasr",
+    ".whistle_engine": "needle",
+}
+
+
+def normalize_engine_name(name):
+    """
+    Returns the registered spelling of an engine name (aliases keep their own entry).
+    """
+    return (name or "faster_whisper").strip().lower().replace("-", "_")
+
+
+def engine_package(name):
+    """
+    Returns the package an engine needs, or None. Raises for unknown engines.
+    """
+    normalized_name = normalize_engine_name(name)
+    if normalized_name not in ENGINE_CLASS_PATHS:
+        raise UnsupportedTranscriptionEngineError(f"Unsupported transcription engine '{name}'")
+    return ENGINE_MODULE_PACKAGES.get(ENGINE_CLASS_PATHS[normalized_name][0])
+
+
+def engine_installed(name):
+    """
+    Reports whether an engine's package is importable here, without importing it.
+    """
+    package = engine_package(name)
+    return package is None or importlib.util.find_spec(package) is not None
+
+
 def _load_engine_class(name):
     """
     Loads the engine class registered for a normalized name.
@@ -54,7 +99,7 @@ def create_transcription_engine(name, config: TranscriptionEngineConfig):
     """
     Creates a transcription engine for a configured backend name.
     """
-    normalized_name = (name or "faster_whisper").strip().lower().replace("-", "_")
+    normalized_name = normalize_engine_name(name)
     if normalized_name not in ENGINE_CLASS_PATHS:
         available_engines = ", ".join(sorted(ENGINE_CLASS_PATHS))
         raise UnsupportedTranscriptionEngineError(

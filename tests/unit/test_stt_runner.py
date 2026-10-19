@@ -187,7 +187,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_hotwords_are_merged_into_parakeet_engine_options(self):
         args = self.parse("--device", "cpu", "--engine", "sherpa_onnx_parakeet", "--engine_options",
-                          '{"num_threads": 2}', "--hotwords", "JSON, SQL")
+                          '{"num_threads": 2}', "--hotwords", "JSON, SQL", "-r", "tiny.en")
         final, realtime = engine_config(args), engine_config(args, realtime=True)
         self.assertEqual(final.engine_options, {"num_threads": 2, "hotwords": "JSON, SQL"})
         # The separate realtime engine is faster-whisper, which takes no hotwords.

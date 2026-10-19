@@ -73,7 +73,7 @@ You can configure the server using the following command-line arguments:
 #### `--rt-engine`, `--realtime_transcription_engine`
 
 - **Type**: `str`
-- **Default**: follows `--engine`, or `faster_whisper` when `--engine` is not Whisper and the main model is not used for realtime
+- **Default**: follows `--engine`; a `parakeet` or `sherpa_onnx_parakeet` engine serves realtime itself, and other non-Whisper engines get `faster_whisper` unless the main model is used for realtime
 - **Description**: Transcription engine for real-time transcription.
 
 #### `--device`
