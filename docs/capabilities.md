@@ -73,10 +73,10 @@ where utterances start and end.
   and language `en`, final and realtime both run `nvidia/parakeet-tdt-0.6b-v2`
   (one model, about 2.7 GB of VRAM, about 65 ms per call standalone, 2.9% WER
   on a LibriSpeech sample). On CPU with sherpa-onnx installed and language
-  `en`, finals run sherpa-onnx Parakeet v3 int8 (3.9% WER, about 250 ms per
-  final on an Apple M4) and partials sherpa-onnx Moonshine tiny int8 (about
-  20 ms per call under 5 s); the models (about 640 MB) download to
-  `~/.cache/realtimestt/sherpa-onnx` on first start. Otherwise faster-whisper
+  `en`, final and realtime both run sherpa-onnx Parakeet v2 int8 (one model,
+  3.1% WER, about 270 ms per final and 130 ms per partial under 5 s on an
+  Apple M4); it downloads (about 480 MB) to `~/.cache/realtimestt/sherpa-onnx`
+  on first start. Otherwise faster-whisper
   `large-v3-turbo` + `small.en` on GPU, or `small` + `tiny.en` on CPU.
   Overrides: `--engine`,
   `--rt-engine`, `-m`, `-r`, `--compute_type`, `--use_main_model_for_realtime`,
@@ -87,7 +87,10 @@ where utterances start and end.
   WER per model: [`RealtimeSTT_server/model_benchmarks.json`](../RealtimeSTT_server/model_benchmarks.json)
   (also returned by `stt-server`'s `get_info`).
 - `--initial_prompt` / `--initial_prompt_realtime` bias Whisper engines toward a
-  vocabulary; Parakeet has no prompt and ignores them.
+  vocabulary; Parakeet has no prompt and ignores them. For sherpa-onnx
+  Parakeet use `--hotwords "JSON, SQL, MVVM"` (or a file with one term per
+  line): on jargon-heavy speech it raised listed terms recognized from 62% to
+  82%.
 
 ## Timing controls
 

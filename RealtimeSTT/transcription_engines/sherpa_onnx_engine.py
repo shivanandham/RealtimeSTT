@@ -3,6 +3,7 @@ Adapts sherpa-onnx offline recognizers to the engine interface.
 """
 
 import logging
+import re
 import shutil
 import tarfile
 import tempfile
@@ -23,19 +24,18 @@ logger = logging.getLogger("realtimestt")
 SHERPA_ONNX_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "realtimestt" / "sherpa-onnx"
 
 DEFAULT_SHERPA_ONNX_PARAKEET_MODEL = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+SHERPA_ONNX_PARAKEET_V2_MODEL = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL = "sherpa-onnx-moonshine-tiny-en-int8"
 
-PARAKEET_DOWNLOAD_URL = (
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-)
-MOONSHINE_DOWNLOAD_URL = (
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-    "sherpa-onnx-moonshine-tiny-en-int8.tar.bz2"
-)
+RELEASE_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/%s.tar.bz2"
+PARAKEET_DOWNLOAD_URL = RELEASE_URL % DEFAULT_SHERPA_ONNX_PARAKEET_MODEL
+PARAKEET_V2_DOWNLOAD_URL = RELEASE_URL % SHERPA_ONNX_PARAKEET_V2_MODEL
+MOONSHINE_DOWNLOAD_URL = RELEASE_URL % DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL
 
 KNOWN_MODEL_DIRS = {
     "nvidia/parakeet-tdt-0.6b-v3": DEFAULT_SHERPA_ONNX_PARAKEET_MODEL,
+    "nvidia/parakeet-tdt-0.6b-v2": SHERPA_ONNX_PARAKEET_V2_MODEL,
+    SHERPA_ONNX_PARAKEET_V2_MODEL: SHERPA_ONNX_PARAKEET_V2_MODEL,
     DEFAULT_SHERPA_ONNX_PARAKEET_MODEL: DEFAULT_SHERPA_ONNX_PARAKEET_MODEL,
     "UsefulSensors/moonshine-streaming-medium": DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
     "UsefulSensors/moonshine-streaming-tiny": DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
@@ -148,6 +148,21 @@ def _float_option(options, name, default):
         )
 
 
+def parse_hotwords(value):
+    """
+    Returns hotword phrases from a list, a comma/newline-separated string, or a file path.
+    """
+
+    if not value:
+        return []
+    if isinstance(value, str):
+        path = Path(value).expanduser()
+        if "\n" not in value and "," not in value and path.is_file():
+            value = path.read_text(encoding="utf-8")
+        value = re.split(r"[,\n]", value)
+    return [phrase.strip() for phrase in value if phrase and phrase.strip()]
+
+
 def _maybe_join(base_dir, value):
     """
     Resolves a file path relative to a base directory when needed.
@@ -167,6 +182,8 @@ class SherpaOnnxOfflineBackend:
     family = "sherpa_onnx"
     default_model_dir = ""
     download_url = ""
+    # Bundles fetched from the sherpa-onnx release on first use when named as the model.
+    downloadable_models = ()
     default_num_threads = 1
 
     def __init__(self, config, recognizer_cls=None):
@@ -212,11 +229,10 @@ class SherpaOnnxOfflineBackend:
             if candidate.is_dir():
                 return candidate
 
-        # This backend's own bundle is fetched from the sherpa-onnx release on first use.
         auto_download = _bool_option(self.engine_options, "auto_download_model", True)
-        if auto_download and self.download_url and str(model_value) == self.default_model_dir:
+        if auto_download and str(model_value) in self.downloadable_models:
             root = Path(self.config.download_root).expanduser() if self.config.download_root else SHERPA_ONNX_DEFAULT_CACHE_DIR
-            return _download_bundle(self.download_url, root / self.default_model_dir)
+            return _download_bundle(RELEASE_URL % model_value, root / str(model_value))
 
         return candidates[0]
 
@@ -304,6 +320,7 @@ class SherpaOnnxParakeetBackend(SherpaOnnxOfflineBackend):
     family = "sherpa_onnx_parakeet"
     default_model_dir = DEFAULT_SHERPA_ONNX_PARAKEET_MODEL
     download_url = PARAKEET_DOWNLOAD_URL
+    downloadable_models = (DEFAULT_SHERPA_ONNX_PARAKEET_MODEL, SHERPA_ONNX_PARAKEET_V2_MODEL)
     # Measured on an Apple M4: 4 threads cut final latency from ~334 ms to ~252 ms.
     # Moonshine tiny is fastest on one thread.
     default_num_threads = 4
@@ -314,12 +331,13 @@ class SherpaOnnxParakeetBackend(SherpaOnnxOfflineBackend):
         """
 
         kwargs = self._common_recognizer_kwargs()
+        tokens = self._file("tokens", "tokens.txt")
         kwargs.update(
             {
                 "encoder": self._file("encoder", "encoder.int8.onnx"),
                 "decoder": self._file("decoder", "decoder.int8.onnx"),
                 "joiner": self._file("joiner", "joiner.int8.onnx"),
-                "tokens": self._file("tokens", "tokens.txt"),
+                "tokens": tokens,
                 "sample_rate": _int_option(self.engine_options, "sample_rate", 16000),
                 "feature_dim": _int_option(self.engine_options, "feature_dim", 80),
                 "dither": _float_option(self.engine_options, "dither", 0.0),
@@ -351,7 +369,38 @@ class SherpaOnnxParakeetBackend(SherpaOnnxOfflineBackend):
                 "lodr_scale": _float_option(self.engine_options, "lodr_scale", 0.0),
             }
         )
+        kwargs.update(self._hotword_kwargs(tokens))
         return recognizer_cls.from_transducer(**kwargs)
+
+    def _hotword_kwargs(self, tokens):
+        """
+        Writes engine_options['hotwords'] to a hotwords file and switches decoding to use it.
+
+        Hotwords need modified_beam_search and a BPE vocabulary, which is
+        derived from the bundle's tokens.txt.
+        """
+
+        hotwords = parse_hotwords(self.engine_options.get("hotwords"))
+        if not hotwords:
+            return {}
+        self._hotwords_dir = tempfile.TemporaryDirectory(prefix="realtimestt-hotwords-")
+        hotwords_file = Path(self._hotwords_dir.name) / "hotwords.txt"
+        hotwords_file.write_text("\n".join(hotwords) + "\n", encoding="utf-8")
+        kwargs = {
+            "hotwords_file": str(hotwords_file),
+            "decoding_method": self.engine_options.get("decoding_method", "modified_beam_search"),
+            "modeling_unit": self.engine_options.get("modeling_unit", "bpe"),
+        }
+        if not self.engine_options.get("bpe_vocab"):
+            vocab = Path(self._hotwords_dir.name) / "bpe.vocab"
+            lines = []
+            for line in Path(tokens).read_text(encoding="utf-8").splitlines():
+                parts = line.rsplit(None, 1)
+                if len(parts) == 2:
+                    lines.append("%s\t%s" % (parts[0], -int(parts[1])))
+            vocab.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            kwargs["bpe_vocab"] = str(vocab)
+        return kwargs
 
 
 class SherpaOnnxMoonshineBackend(SherpaOnnxOfflineBackend):
@@ -362,6 +411,7 @@ class SherpaOnnxMoonshineBackend(SherpaOnnxOfflineBackend):
     family = "sherpa_onnx_moonshine"
     default_model_dir = DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL
     download_url = MOONSHINE_DOWNLOAD_URL
+    downloadable_models = (DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,)
 
     def _create_recognizer(self, recognizer_cls):
         """

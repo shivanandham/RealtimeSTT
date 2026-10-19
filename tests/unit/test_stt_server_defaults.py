@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from RealtimeSTT_server import stt_server
-from RealtimeSTT_server.stt_server import apply_device_defaults
+from RealtimeSTT_server.stt_server import apply_device_defaults, hotword_options
 
 
 def installed(*packages):
@@ -42,15 +42,19 @@ class SttServerDefaultsTests(unittest.TestCase):
             ("cpu", "small", "tiny.en", "int8"),
         )
 
-    def test_cpu_with_sherpa_uses_parakeet_final_and_moonshine_realtime(self):
+    def test_cpu_with_sherpa_uses_parakeet_v2_for_final_and_realtime(self):
         with patch("torch.cuda.is_available", return_value=False), with_sherpa:
             resolved = apply_device_defaults(args())
         self.assertEqual(
             (resolved.device, resolved.engine, resolved.model, resolved.rt_engine, resolved.rt_model,
              resolved.use_main_model_for_realtime),
-            ("cpu", "sherpa_onnx_parakeet", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
-             "sherpa_onnx_moonshine", "sherpa-onnx-moonshine-tiny-en-int8", False),
+            ("cpu", "sherpa_onnx_parakeet", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", None, None, True),
         )
+
+    def test_hotwords_only_go_to_sherpa_parakeet(self):
+        self.assertEqual(hotword_options("sherpa_onnx_parakeet", "JSON, SQL"), {"hotwords": "JSON, SQL"})
+        self.assertEqual(hotword_options("faster_whisper", "JSON, SQL"), {})
+        self.assertEqual(hotword_options("sherpa_onnx_parakeet", None), {})
 
     def test_sherpa_is_skipped_for_non_english_gpu_or_explicit_model(self):
         with with_sherpa:

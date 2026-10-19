@@ -491,7 +491,7 @@ def on_turn_detection_stop(loop):
 #         asyncio.run_coroutine_threadsafe(audio_queue.put(message), loop)
 
 # Define the server's arguments
-from RealtimeSTT.core.model_defaults import DEVICE_DEFAULTS, PARAKEET_MODEL, apply_device_defaults  # noqa: F401
+from RealtimeSTT.core.model_defaults import DEVICE_DEFAULTS, PARAKEET_MODEL, apply_device_defaults, hotword_options  # noqa: F401
 
 
 def parse_arguments():
@@ -618,6 +618,9 @@ def parse_arguments():
     parser.add_argument('--wake_word_buffer_duration', type=float, default=1.0,
                         help='Duration of the buffer in seconds for wake word detection. This sets how long the system will store the audio before and after detecting the wake word. Default is 1.0 seconds.')
 
+    parser.add_argument('--hotwords', type=str, default=None,
+                        help='Terms to bias sherpa-onnx Parakeet towards (JSON, SQL, Kubernetes): comma-separated, or a file with one term per line. Whisper engines use --initial_prompt instead.')
+
     parser.add_argument('--use_main_model_for_realtime', action='store_true', default=None,
                         help='Enable this option if you want to use the main model for real-time transcription, instead of the smaller, faster real-time model. Using the main model may provide better accuracy but at the cost of higher processing time.')
 
@@ -669,6 +672,9 @@ def parse_arguments():
         # If app debug is off, silence websockets below WARNING
         ws_logger.setLevel(logging.WARNING)
         ws_logger.propagate = True # Allow WARNING/ERROR messages to reach root logger's handler
+
+    if args.hotwords and not hotword_options(args.engine, args.hotwords):
+        print(f"{bcolors.WARNING}--hotwords only applies to sherpa_onnx_parakeet; use --initial_prompt for {args.engine}{bcolors.ENDC}")
 
     # Replace escaped newlines with actual newlines in initial_prompt
     if args.initial_prompt:
@@ -951,6 +957,9 @@ async def main_async():
         'beam_size': args.beam_size,
         'beam_size_realtime': args.beam_size_realtime,
         'initial_prompt': args.initial_prompt,
+        'transcription_engine_options': hotword_options(args.engine, args.hotwords) or None,
+        # An empty dict keeps the final engine's hotwords away from a different realtime engine.
+        'realtime_transcription_engine_options': hotword_options(args.rt_engine or args.engine, args.hotwords),
         'wake_words': args.wake_words,
         'wake_words_sensitivity': args.wake_words_sensitivity,
         'wake_word_timeout': args.wake_word_timeout,

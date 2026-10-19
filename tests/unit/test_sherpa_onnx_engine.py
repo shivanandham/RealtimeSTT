@@ -393,6 +393,57 @@ class SherpaOnnxEngineTests(unittest.TestCase):
         self.assertEqual(FakeSherpaRecognizer.transducer_calls[0]["num_threads"], 4)
         self.assertEqual(FakeSherpaRecognizer.moonshine_calls[0]["num_threads"], 1)
 
+    def test_parakeet_v2_bundle_is_downloadable(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True)
+            for filename in PARAKEET_FILES:
+                (target_dir / filename).write_text("placeholder", encoding="utf-8")
+            return target_dir
+
+        with patch.object(sherpa_onnx_engine, "_download_bundle", side_effect=fake_download) as download:
+            SherpaOnnxParakeetBackend(
+                TranscriptionEngineConfig(model="nvidia/parakeet-tdt-0.6b-v2", download_root=temp_dir.name),
+                recognizer_cls=FakeSherpaRecognizer,
+            )
+        download.assert_called_once_with(
+            sherpa_onnx_engine.PARAKEET_V2_DOWNLOAD_URL,
+            Path(temp_dir.name) / sherpa_onnx_engine.SHERPA_ONNX_PARAKEET_V2_MODEL,
+        )
+
+    def test_hotwords_switch_parakeet_to_biased_beam_search(self):
+        temp_dir, model_dir = self.make_model_dir(PARAKEET_FILES)
+        self.addCleanup(temp_dir.cleanup)
+        (model_dir / "tokens.txt").write_text("<unk> 0\n\u2581J 1\nSON 2\n", encoding="utf-8")
+
+        backend = SherpaOnnxParakeetBackend(
+            TranscriptionEngineConfig(model=str(model_dir), engine_options={"hotwords": "JSON, SQL\nMVC"}),
+            recognizer_cls=FakeSherpaRecognizer,
+        )
+
+        call = FakeSherpaRecognizer.transducer_calls[0]
+        self.assertEqual((call["decoding_method"], call["modeling_unit"]), ("modified_beam_search", "bpe"))
+        self.assertEqual(Path(call["hotwords_file"]).read_text(encoding="utf-8"), "JSON\nSQL\nMVC\n")
+        self.assertEqual(Path(call["bpe_vocab"]).read_text(encoding="utf-8"), "<unk>\t0\n\u2581J\t-1\nSON\t-2\n")
+        backend._hotwords_dir.cleanup()
+
+        SherpaOnnxParakeetBackend(TranscriptionEngineConfig(model=str(model_dir)), recognizer_cls=FakeSherpaRecognizer)
+        call = FakeSherpaRecognizer.transducer_calls[1]
+        self.assertEqual((call["decoding_method"], call["hotwords_file"]), ("greedy_search", ""))
+
+    def test_parse_hotwords_accepts_lists_strings_and_files(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        path = Path(temp_dir.name) / "terms.txt"
+        path.write_text("Kubernetes\nGitHub Actions\n\n", encoding="utf-8")
+
+        self.assertEqual(sherpa_onnx_engine.parse_hotwords([" API ", ""]), ["API"])
+        self.assertEqual(sherpa_onnx_engine.parse_hotwords("JSON, SQL"), ["JSON", "SQL"])
+        self.assertEqual(sherpa_onnx_engine.parse_hotwords(str(path)), ["Kubernetes", "GitHub Actions"])
+        self.assertEqual(sherpa_onnx_engine.parse_hotwords(None), [])
+
     def test_missing_model_file_reports_download_hint(self):
         temp_dir, model_dir = self.make_model_dir(PARAKEET_FILES[:-1])
         self.addCleanup(temp_dir.cleanup)

@@ -18,7 +18,7 @@ import sys
 import threading
 
 from RealtimeSTT.core.audio_input_worker import list_input_devices, list_pulse_sources
-from RealtimeSTT.core.model_defaults import apply_device_defaults
+from RealtimeSTT.core.model_defaults import apply_device_defaults, hotword_options
 from RealtimeSTT.multichannel import ChannelSpec, MultiChannelRecorder, SharedEngine
 from RealtimeSTT.transcription_engines import TranscriptionEngineConfig
 
@@ -172,6 +172,8 @@ def build_parser():
     parser.add_argument("--realtime_batch_size", type=int, default=16)
     parser.add_argument("--initial_prompt", default=None, help="Prompt/vocabulary for the final model.")
     parser.add_argument("--initial_prompt_realtime", default=None, help="Prompt for a separate realtime model.")
+    parser.add_argument("--hotwords", default=None,
+                        help="Terms to bias sherpa-onnx Parakeet towards: comma-separated, or a file with one per line.")
     parser.add_argument("--engine_options", default=None, help="JSON object passed to the final engine.")
     parser.add_argument("--rt_engine_options", default=None, help="JSON object passed to a separate realtime engine.")
     parser.add_argument("--faster_whisper_vad_filter", action=argparse.BooleanOptionalAction, default=True)
@@ -195,6 +197,8 @@ def engine_config(args, realtime=False):
     Builds the engine configuration for the final or realtime model.
     """
     options = args.rt_engine_options if realtime else args.engine_options
+    options = json.loads(options) if options else {}
+    options.update(hotword_options((args.rt_engine or args.engine) if realtime else args.engine, args.hotwords))
     return TranscriptionEngineConfig(
         model=args.rt_model if realtime else args.model,
         download_root=args.download_root,
@@ -205,7 +209,7 @@ def engine_config(args, realtime=False):
         initial_prompt=(args.initial_prompt_realtime or args.initial_prompt) if realtime else args.initial_prompt,
         batch_size=args.realtime_batch_size if realtime else args.batch_size,
         vad_filter=args.faster_whisper_vad_filter,
-        engine_options=json.loads(options) if options else None,
+        engine_options=options or None,
     )
 
 
@@ -430,6 +434,8 @@ def main(argv=None):
         write({"type": "error", "message": str(exc)})
         return 2
 
+    if args.hotwords and not hotword_options(args.engine, args.hotwords):
+        logging.warning("--hotwords only applies to sherpa_onnx_parakeet; use --initial_prompt for %s", args.engine)
     final = SharedEngine(args.engine, engine_config(args))
     if args.no_realtime:
         realtime = None

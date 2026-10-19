@@ -14,7 +14,7 @@ python -m pip install sherpa-onnx
 
 | Engine | Model bundle | Language notes |
 | --- | --- | --- |
-| `sherpa_onnx_parakeet` | `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | Parakeet model behavior. |
+| `sherpa_onnx_parakeet` | `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` (engine default, 25 European languages) or `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` (English only, the `stt-server` / `stt-runner` CPU default) | v2 is more accurate on English; see below. |
 | `sherpa_onnx_moonshine` | `sherpa-onnx-moonshine-tiny-en-int8` | English-only in the adapter. |
 
 Aliases:
@@ -26,7 +26,7 @@ Aliases:
 
 ## Model Download Requirements
 
-The two bundles below are downloaded and extracted automatically on first use
+The three bundles below are downloaded and extracted automatically on first use
 when the model is given by its bundle name (as the `stt-server` / `stt-runner`
 CPU defaults do): into `download_root` when set, otherwise into
 `~/.cache/realtimestt/sherpa-onnx`. Set
@@ -40,6 +40,7 @@ and pass the extracted directory as `model` or
 Known bundle names:
 
 - `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`
+- `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2` (also `nvidia/parakeet-tdt-0.6b-v2`)
 - `sherpa-onnx-moonshine-tiny-en-int8.tar.bz2`
 
 Windows PowerShell example:
@@ -127,6 +128,49 @@ recorder = AudioToTextRecorder(
 
 When `download_root` is set, known model ids resolve to the expected extracted
 directory names under that root.
+
+## Hotwords (domain vocabulary)
+
+Parakeet has no text prompt, but sherpa-onnx can bias its beam search towards
+listed phrases. Pass them as `hotwords`: a list, a comma- or newline-separated
+string, or the path of a file with one phrase per line.
+
+```python
+recorder = AudioToTextRecorder(
+    transcription_engine="sherpa_onnx_parakeet",
+    model="sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+    device="cpu",
+    transcription_engine_options={
+        "hotwords": ["JSON", "SQL", "MVVM", "Kubernetes", "GitHub Actions", "pgvector"],
+    },
+)
+```
+
+`stt-server` and `stt-runner` take the same list as `--hotwords "JSON, SQL, MVVM"`
+(or `--hotwords terms.txt`).
+
+Setting hotwords switches decoding to `modified_beam_search` with
+`modeling_unit="bpe"`, and builds the BPE vocabulary from the bundle's
+`tokens.txt`. `hotwords_score` (default 1.5) sets the boost per token; 1.0 to
+2.0 measured about the same, 3.0 started inserting listed words that were not
+spoken. Hotwords do not apply to Moonshine.
+
+Measured on an Apple M4 (4 threads), 60 clips of one non-native English
+speaker reading programming and résumé sentences dense with acronyms and
+product names (laptop microphone, about 6.5 s each, 196 listed terms):
+
+| Model | WER | Listed terms correct | Final p50 |
+| --- | --- | --- | --- |
+| Parakeet v3 int8 | 31.8% | 55% | 295 ms |
+| Parakeet v3 int8 + hotwords | 24.6% | 74% | 370 ms |
+| Parakeet v2 int8 | 24.5% | 62% | 296 ms |
+| Parakeet v2 int8 + hotwords | 18% | 81-83% | 200-310 ms |
+| faster-whisper `small.en` int8 + term list as `initial_prompt` | 16.8% | 87% | 1964 ms |
+
+With an unrelated hotword list, v2 WER stayed 3.1% on the LibriSpeech sample
+and went from 2.3% to 2.8% on 75 minutes of technical sentences
+(danielrosehill/Tech-Sentences-For-ASR-Training), so a list that does not
+match the conversation costs little.
 
 ## Common Options
 

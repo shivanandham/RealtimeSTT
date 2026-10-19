@@ -185,6 +185,14 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((realtime.model, realtime.beam_size, realtime.engine_options), ("tiny.en", 3, None))
         self.assertEqual([parse_channel(t) for t in args.channel], [ChannelSpec("me", 4)])
 
+    def test_hotwords_are_merged_into_parakeet_engine_options(self):
+        args = self.parse("--device", "cpu", "--engine", "sherpa_onnx_parakeet", "--engine_options",
+                          '{"num_threads": 2}', "--hotwords", "JSON, SQL")
+        final, realtime = engine_config(args), engine_config(args, realtime=True)
+        self.assertEqual(final.engine_options, {"num_threads": 2, "hotwords": "JSON, SQL"})
+        # The separate realtime engine is faster-whisper, which takes no hotwords.
+        self.assertEqual((args.rt_engine, realtime.engine_options), ("faster_whisper", None))
+
     def test_recorder_kwargs_only_include_given_flags(self):
         args = self.parse("--device", "cpu")
         self.assertEqual(recorder_kwargs(args), {"language": "en", "no_log_file": True, "level": 30})

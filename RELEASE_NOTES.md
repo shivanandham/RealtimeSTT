@@ -4,6 +4,11 @@
 
 ### Added
 
+- Added `--hotwords` to `stt-server` and `stt-runner`, and a `hotwords` engine
+  option for `sherpa_onnx_parakeet` (list, comma-separated string or file).
+  It biases Parakeet's beam search towards domain terms such as JSON, SQL or
+  Kubernetes: on jargon-heavy speech, listed terms recognized went from 62%
+  to 82% and WER from 24.5% to 18.5%.
 - Added multi-channel transcription: `RealtimeSTT.SharedEngine` loads one
   model on one inference thread and serves many recorders (finals before
   partials); `RealtimeSTT.MultiChannelRecorder` runs several inputs with their
@@ -40,13 +45,14 @@
   stay `small` / `tiny.en` / int8.
 - On CPU with sherpa-onnx installed (`pip install "realtimestt[sherpa-onnx]"`)
   and language `en`, `stt-server` and `stt-runner` now default to sherpa-onnx
-  Parakeet v3 int8 for final transcription and sherpa-onnx Moonshine tiny int8
-  for realtime. On an Apple M4 that is 3.9% WER at about 250 ms per final
-  (faster-whisper `small.en`: 6.0% at about 2.1 s) and about 20 ms per partial
-  under 5 s (`tiny.en`: about 150 ms). Without sherpa-onnx, or for other
+  Parakeet v2 int8 (English) for final and realtime transcription, one loaded
+  model. On an Apple M4 that is 3.1% WER at about 270 ms per final
+  (faster-whisper `small.en`: 6.0% at about 2.1 s) and about 130 ms per
+  partial under 5 s. On accented, jargon-heavy speech it had 24.5% WER, against
+  31.8% for Parakeet v3, 26.4% for `small.en` and 48.7% for Moonshine tiny. Without sherpa-onnx, or for other
   languages, the CPU defaults stay faster-whisper `small` / `tiny.en` / int8.
-- The sherpa-onnx engines download and extract the Parakeet v3 int8 and
-  Moonshine tiny int8 bundles on first use (into `download_root` or
+- The sherpa-onnx engines download and extract the Parakeet v2 int8, Parakeet
+  v3 int8 and Moonshine tiny int8 bundles on first use (into `download_root` or
   `~/.cache/realtimestt/sherpa-onnx`; disable with `auto_download_model`).
   sherpa-onnx Parakeet now defaults to 4 threads instead of 1.
 - `model_benchmarks.json` adds Apple M4 CPU measurements (entries carry a
