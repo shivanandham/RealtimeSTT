@@ -1,0 +1,920 @@
+# Software and IT vocabulary for sherpa-onnx Parakeet hotwords (--hotwords software).
+# One phrase per line, written the way it should appear in the transcript.
+# Sources: Stack Overflow Developer Survey 2025 technology lists and common
+# computing abbreviations.
+#
+# Left out on purpose:
+# - names that are also everyday words (Go, Make, Spring, Express, Zoom, Ray),
+#   so normal speech is not recapitalized or rewritten;
+# - words the model already spells right (microservices, embeddings), which only
+#   add false matches;
+# - terms the Parakeet vocabulary cannot spell (C++, C#, F#).
+
+# Languages and runtimes
+Python
+JavaScript
+TypeScript
+Java
+Kotlin
+Scala
+Golang
+Ruby
+PHP
+Perl
+Dart
+Elixir
+Erlang
+Haskell
+Clojure
+Lua
+MATLAB
+Solidity
+WebAssembly
+Wasm
+Node.js
+Deno
+JVM
+JDK
+.NET
+PowerShell
+Bash
+Zsh
+Objective-C
+Groovy
+OCaml
+Zig
+Mojo
+LLVM
+GCC
+Clang
+GraalVM
+asyncio
+GIL
+PEP 8
+JIT
+
+# Data formats and markup
+JSON
+YAML
+TOML
+XML
+HTML
+CSS
+CSV
+Markdown
+README
+PDF
+PNG
+JPEG
+SVG
+UTF-8
+ASCII
+regex
+Protobuf
+Parquet
+Avro
+JSON Schema
+JSONL
+GeoJSON
+LaTeX
+DOCX
+XLSX
+WebP
+MP4
+
+# Web and protocols
+API
+APIs
+REST
+RESTful
+GraphQL
+gRPC
+HTTP
+HTTPS
+HTTP/2
+URL
+URI
+DNS
+TCP
+UDP
+IP
+IPv4
+IPv6
+TLS
+SSL
+SSH
+SFTP
+SMTP
+VPN
+VPC
+CDN
+CORS
+WebSocket
+WebSockets
+WebRTC
+MQTT
+AMQP
+localhost
+DOM
+SPA
+SSR
+PWA
+JSX
+HTTP/3
+QUIC
+TCP/IP
+CIDR
+NAT
+DHCP
+LDAP
+SSE
+REST API
+API Gateway
+Webhook
+Webhooks
+IndexedDB
+localStorage
+Service Worker
+WebGL
+WebGPU
+SEO
+TSX
+
+# Security and identity
+OAuth
+OAuth 2.0
+OpenID Connect
+OIDC
+JWT
+SSO
+SAML
+MFA
+2FA
+RBAC
+IAM
+CSRF
+XSS
+SQL injection
+OWASP
+CVE
+Auth0
+Okta
+Keycloak
+JSON Web Token
+WebAuthn
+HMAC
+SHA-256
+RSA
+AES
+bcrypt
+TLS 1.3
+mTLS
+HSTS
+CSP
+WAF
+DDoS
+SIEM
+SOC 2
+GDPR
+HIPAA
+PCI DSS
+ISO 27001
+Let's Encrypt
+HashiCorp Vault
+Zero Trust
+
+# Architecture and practice
+CRUD
+ORM
+MVC
+MVVM
+SOLID
+ACID
+CAP theorem
+OOP
+TDD
+BDD
+DDD
+CI/CD
+DevOps
+SRE
+QA
+UI
+UX
+UI/UX
+CLI
+GUI
+IDE
+SDK
+SaaS
+PaaS
+IaaS
+B2B
+B2C
+MVP
+KPI
+SLA
+SLO
+ETL
+ELT
+OLAP
+OLTP
+CRM
+ERP
+CMS
+RPS
+QPS
+p95
+p99
+CQRS
+SOA
+DRY
+YAGNI
+LRU
+Big O
+BFS
+DFS
+B-tree
+DAG
+FIFO
+LIFO
+NPM
+MLOps
+GitOps
+DevSecOps
+FinOps
+SDLC
+PRD
+RFC
+POC
+WYSIWYG
+OKR
+SLI
+RPO
+RTO
+MTTR
+A/B testing
+p50
+
+# Hardware and systems
+CPU
+GPU
+TPU
+NPU
+RAM
+VRAM
+SSD
+NVMe
+IoT
+VM
+VMs
+Linux
+Ubuntu
+Debian
+Fedora
+CentOS
+macOS
+iOS
+Android
+WSL
+systemd
+cron
+sudo
+chmod
+stdout
+stderr
+Windows
+Unix
+POSIX
+GNU
+RHEL
+Red Hat
+Arch Linux
+Alpine Linux
+NixOS
+FreeBSD
+ARM
+x86
+x86-64
+RISC-V
+Apple Silicon
+Raspberry Pi
+Arduino
+ESP32
+FPGA
+ASIC
+UEFI
+BIOS
+SoC
+iptables
+journalctl
+tmux
+curl
+wget
+rsync
+htop
+ffmpeg
+ImageMagick
+PID
+SIGTERM
+SIGKILL
+
+# Databases and storage
+SQL
+NoSQL
+PostgreSQL
+Postgres
+pgvector
+MySQL
+SQLite
+MariaDB
+SQL Server
+MongoDB
+Redis
+Valkey
+Memcached
+Cassandra
+DynamoDB
+Elasticsearch
+OpenSearch
+Neo4j
+ClickHouse
+DuckDB
+Snowflake
+Databricks
+BigQuery
+Redshift
+CockroachDB
+InfluxDB
+TimescaleDB
+Supabase
+Firebase
+Firestore
+Prisma
+SQLAlchemy
+Oracle
+Cosmos DB
+MinIO
+Ceph
+HDFS
+Amazon S3
+GCS
+Blob Storage
+TypeORM
+Sequelize
+Mongoose
+Drizzle
+Knex
+Alembic
+Flyway
+Liquibase
+PgBouncer
+RDBMS
+DBMS
+DBA
+
+# Messaging and streaming
+Kafka
+RabbitMQ
+SQS
+SNS
+Celery
+Sidekiq
+Pub/Sub
+Apache Kafka
+Kafka Streams
+Kafka Connect
+Kinesis
+NATS
+ZeroMQ
+ActiveMQ
+BullMQ
+Apache Flink
+Apache Spark
+PySpark
+Hadoop
+Airflow
+Apache Airflow
+dbt
+Delta Lake
+Fivetran
+Airbyte
+Tableau
+Power BI
+Looker
+Metabase
+Google Analytics
+Mixpanel
+
+# Cloud
+AWS
+EC2
+S3
+RDS
+EKS
+ECS
+Fargate
+Lambda
+CloudFront
+CloudWatch
+Route 53
+EventBridge
+Amazon Bedrock
+Azure
+Azure DevOps
+GCP
+Google Cloud
+GKE
+Cloud Run
+Cloudflare
+Vercel
+Netlify
+Heroku
+DigitalOcean
+Amazon Web Services
+Microsoft Azure
+AWS Lambda
+Cognito
+Secrets Manager
+CloudFormation
+AWS CDK
+SageMaker
+Step Functions
+ElastiCache
+EMR
+Azure Functions
+Azure OpenAI
+AKS
+Entra ID
+Vertex AI
+Cloud Functions
+Compute Engine
+App Engine
+Fly.io
+Linode
+Hetzner
+OVH
+OpenStack
+
+# Containers, infrastructure and observability
+Docker
+Dockerfile
+Docker Compose
+Kubernetes
+k8s
+kubectl
+Helm
+Istio
+Terraform
+Ansible
+Nginx
+Apache
+HAProxy
+Traefik
+Jenkins
+GitHub Actions
+GitLab CI
+CircleCI
+Argo CD
+Prometheus
+Grafana
+Datadog
+Sentry
+PagerDuty
+New Relic
+Splunk
+Kibana
+OpenTelemetry
+Podman
+containerd
+minikube
+K3s
+OpenShift
+Rancher
+Linkerd
+Pulumi
+Crossplane
+Vagrant
+SaltStack
+Argo Workflows
+FluxCD
+Tekton
+Buildkite
+Travis CI
+TeamCity
+SonarQube
+Snyk
+Dependabot
+Renovate
+Jaeger
+Zipkin
+Logstash
+Fluentd
+ELK
+ELK stack
+Honeycomb
+StatsD
+
+# Frontend
+React
+React Native
+Next.js
+Angular
+AngularJS
+Vue
+Vue.js
+Nuxt
+Svelte
+SvelteKit
+jQuery
+Redux
+Vuex
+Pinia
+Zustand
+Tailwind
+Tailwind CSS
+Bootstrap
+shadcn
+Material UI
+Vite
+Webpack
+Babel
+ESLint
+Prettier
+Storybook
+htmx
+Figma
+Gatsby
+SolidJS
+Qwik
+Alpine.js
+Three.js
+D3.js
+Chart.js
+Lodash
+Axios
+RxJS
+Socket.IO
+TanStack Query
+React Query
+React Router
+React Hooks
+useState
+useEffect
+MobX
+Sass
+SCSS
+PostCSS
+styled-components
+Chakra UI
+Ant Design
+Radix UI
+Framer Motion
+Turborepo
+Nx
+Lerna
+esbuild
+SWC
+Turbopack
+Web Components
+Canva
+
+# Backend frameworks
+Express.js
+NestJS
+Fastify
+Django
+Flask
+FastAPI
+Pydantic
+Spring Boot
+Hibernate
+Laravel
+Symfony
+Rails
+Ruby on Rails
+ASP.NET
+Blazor
+Phoenix LiveView
+Koa
+tRPC
+Actix
+Axum
+Tokio
+Quarkus
+Micronaut
+Ktor
+Spring Cloud
+Spring Security
+Spring Data
+.NET Core
+ASP.NET Core
+Entity Framework
+Gunicorn
+Uvicorn
+WSGI
+ASGI
+Starlette
+Jinja
+Puma
+Sinatra
+Strapi
+Contentful
+Hasura
+Appwrite
+PocketBase
+
+# Mobile and desktop
+Flutter
+SwiftUI
+Jetpack Compose
+Xcode
+Android Studio
+Electron
+Tauri
+Godot
+iPhone
+iPad
+App Store
+Google Play
+TestFlight
+Xamarin
+.NET MAUI
+Kotlin Multiplatform
+CocoaPods
+Swift Package Manager
+APK
+Qt
+GTK
+Unreal Engine
+
+# Testing
+pytest
+Jest
+Vitest
+Cypress
+Playwright
+Selenium
+RSpec
+JUnit
+Postman
+Swagger
+OpenAPI
+unittest
+Puppeteer
+TestNG
+Mockito
+JMeter
+k6
+Gatling
+codecov
+coverage.py
+
+# Tooling and collaboration
+Git
+GitHub
+GitLab
+Bitbucket
+npm
+pnpm
+Yarn
+pip
+uv
+conda
+venv
+Homebrew
+Gradle
+Maven
+CMake
+Makefile
+VS Code
+Visual Studio
+IntelliJ
+PyCharm
+Vim
+Neovim
+Emacs
+Jupyter
+Jira
+Confluence
+Slack
+Trello
+Asana
+Stripe
+Twilio
+Shopify
+WordPress
+GitHub Codespaces
+Git LFS
+pull request
+PR
+PRs
+merge request
+git rebase
+git stash
+cherry-pick
+Visual Studio Code
+WebStorm
+GoLand
+CLion
+Sublime Text
+Windsurf
+Jupyter Notebook
+JupyterLab
+Google Colab
+Kaggle
+Anaconda
+pipenv
+mypy
+Ruff
+flake8
+Pylint
+pre-commit
+tox
+Bazel
+NuGet
+Chocolatey
+APT
+YUM
+DNF
+nvm
+pyenv
+Stack Overflow
+Hacker News
+Microsoft Teams
+Google Meet
+Google Docs
+Google Sheets
+Google Drive
+Google Workspace
+Microsoft 365
+Excel
+PowerPoint
+Gmail
+OneDrive
+SharePoint
+Dropbox
+Miro
+ClickUp
+Monday.com
+Airtable
+Zapier
+Salesforce
+HubSpot
+Zendesk
+Intercom
+Mailchimp
+SendGrid
+PayPal
+Razorpay
+Plaid
+Squarespace
+Webflow
+Wix
+WooCommerce
+LinkedIn
+YouTube
+Reddit
+
+# AI and ML
+AI
+ML
+LLM
+LLMs
+NLP
+RAG
+AGI
+GenAI
+GPT
+ChatGPT
+OpenAI
+Anthropic
+Claude
+Claude Code
+Gemini
+Llama
+Mistral
+DeepSeek
+Qwen
+Ollama
+Copilot
+GitHub Copilot
+Hugging Face
+PyTorch
+TensorFlow
+Keras
+JAX
+scikit-learn
+NumPy
+pandas
+Polars
+LangChain
+LangGraph
+LlamaIndex
+Pinecone
+Weaviate
+Qdrant
+FAISS
+LoRA
+RLHF
+CNN
+RNN
+LSTM
+BERT
+ONNX
+CUDA
+MCP
+OCR
+ASR
+TTS
+GPT-4
+GPT-4o
+GPT-5
+GPT-3.5
+Claude Sonnet
+Claude Opus
+Claude Haiku
+Gemini Pro
+Gemini Flash
+Llama 3
+Mixtral
+Phi-3
+Grok
+Midjourney
+Stable Diffusion
+DALL-E
+Cohere
+Groq
+Replicate
+LM Studio
+vLLM
+llama.cpp
+GGUF
+TensorRT
+MLflow
+Kubeflow
+Dask
+SciPy
+Matplotlib
+Seaborn
+Plotly
+Streamlit
+Gradio
+OpenCV
+spaCy
+NLTK
+XGBoost
+LightGBM
+CatBoost
+sentence-transformers
+TF-IDF
+BM25
+ChromaDB
+Milvus
+AutoGen
+CrewAI
+LangSmith
+DSPy
+OpenAI API
+API key
+GAN
+VAE
+SFT
+DPO
+PPO
+MoE
+KV cache
+FlashAttention
+FP16
+BF16
+INT8
+GPTQ
+AWQ
+QLoRA
+NLU
+NER
+LLMOps
+AIOps
+ResNet
+ViT
+Word2Vec
+YOLO
+A2A
+
+# Web3
+Ethereum
+Bitcoin
+Solana
+NFT
+DeFi
+Web3
+Coinbase
+ERC-20
+MetaMask
+Hardhat
+Web3.js
+ethers.js
+testnet
+mainnet
+KYC
+AML

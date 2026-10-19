@@ -43,7 +43,8 @@ and realtime work both run on `nvidia/parakeet-tdt-0.6b-v2` (one model, about
 2.7 GB of VRAM). On CPU with sherpa-onnx installed and `--lang en`, final
 and realtime work both run on sherpa-onnx Parakeet v2 int8 (about 480 MB,
 downloaded to `~/.cache/realtimestt/sherpa-onnx` on first start); add
-`--hotwords "JSON, SQL, MVVM"` to bias it towards your vocabulary. Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
+`--hotwords software` (bundled software and IT terms, optionally followed by
+your own: `"software, Acme Cloud"`) to bias it towards technical vocabulary. Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
 or `small` + `tiny.en` on CPU. `--engine`, `--rt-engine`, `-m`, `-r`,
 `--use_main_model_for_realtime` and `--no-realtime` override this.
 

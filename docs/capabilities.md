@@ -88,9 +88,9 @@ where utterances start and end.
   (also returned by `stt-server`'s `get_info`).
 - `--initial_prompt` / `--initial_prompt_realtime` bias Whisper engines toward a
   vocabulary; Parakeet has no prompt and ignores them. For sherpa-onnx
-  Parakeet use `--hotwords "JSON, SQL, MVVM"` (or a file with one term per
-  line): on jargon-heavy speech it raised listed terms recognized from 62% to
-  82%.
+  Parakeet use `--hotwords software` (a bundled list of about 875 software
+  and IT terms), optionally plus your own: `--hotwords "software, Acme Cloud"`.
+  On accented, jargon-heavy speech it cut WER from 24.5% to 18.8%.
 
 ## Timing controls
 

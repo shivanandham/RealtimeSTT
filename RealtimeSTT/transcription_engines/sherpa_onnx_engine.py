@@ -22,6 +22,8 @@ from .base import (
 logger = logging.getLogger("realtimestt")
 
 SHERPA_ONNX_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "realtimestt" / "sherpa-onnx"
+# Bundled hotword lists, selected by name: --hotwords software
+HOTWORD_PRESETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "hotwords"
 
 DEFAULT_SHERPA_ONNX_PARAKEET_MODEL = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 SHERPA_ONNX_PARAKEET_V2_MODEL = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
@@ -151,6 +153,9 @@ def _float_option(options, name, default):
 def parse_hotwords(value):
     """
     Returns hotword phrases from a list, a comma/newline-separated string, or a file path.
+
+    Lines starting with "#" are comments. A bundled preset name (such as
+    "software", see HOTWORD_PRESETS_DIR) expands to that preset's phrases.
     """
 
     if not value:
@@ -159,8 +164,17 @@ def parse_hotwords(value):
         path = Path(value).expanduser()
         if "\n" not in value and "," not in value and path.is_file():
             value = path.read_text(encoding="utf-8")
-        value = re.split(r"[,\n]", value)
-    return [phrase.strip() for phrase in value if phrase and phrase.strip()]
+        lines = [line for line in value.splitlines() if not line.strip().startswith("#")]
+        value = re.split(r"[,\n]", "\n".join(lines))
+    phrases = []
+    for phrase in value:
+        phrase = (phrase or "").strip()
+        preset = HOTWORD_PRESETS_DIR / ("%s.txt" % phrase)
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", phrase) and preset.is_file():
+            phrases.extend(parse_hotwords(str(preset)))
+        elif phrase:
+            phrases.append(phrase)
+    return list(dict.fromkeys(phrases))
 
 
 def _maybe_join(base_dir, value):
@@ -347,10 +361,12 @@ class SherpaOnnxParakeetBackend(SherpaOnnxOfflineBackend):
                     4,
                 ),
                 "hotwords_file": self.engine_options.get("hotwords_file", ""),
+                # 1.0 beat 1.5 with the bundled software list on LibriSpeech,
+                # technical sentences and accented speech alike.
                 "hotwords_score": _float_option(
                     self.engine_options,
                     "hotwords_score",
-                    1.5,
+                    1.0,
                 ),
                 "blank_penalty": _float_option(
                     self.engine_options,
