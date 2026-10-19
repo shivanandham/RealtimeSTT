@@ -444,16 +444,6 @@ class SherpaOnnxEngineTests(unittest.TestCase):
         self.assertEqual(sherpa_onnx_engine.parse_hotwords(str(path)), ["Kubernetes", "GitHub Actions"])
         self.assertEqual(sherpa_onnx_engine.parse_hotwords(None), [])
 
-    def test_parse_hotwords_expands_bundled_presets(self):
-        software = sherpa_onnx_engine.parse_hotwords("software")
-
-        self.assertIn("Kubernetes", software)
-        self.assertIn("JSON", software)
-        self.assertFalse([phrase for phrase in software if phrase.startswith("#")])
-        self.assertEqual(len(software), len(set(software)))
-        combined = sherpa_onnx_engine.parse_hotwords("software, Francium Tech, JSON")
-        self.assertEqual(combined, software + ["Francium Tech"])
-
     def test_missing_model_file_reports_download_hint(self):
         temp_dir, model_dir = self.make_model_dir(PARAKEET_FILES[:-1])
         self.addCleanup(temp_dir.cleanup)

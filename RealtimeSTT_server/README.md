@@ -225,7 +225,7 @@ You can configure the server using the following command-line arguments:
 
 - **Type**: `str`
 - **Default**: none
-- **Description**: Terms to bias sherpa-onnx Parakeet towards: comma-separated, or the path of a file with one term per line. `software` selects the bundled list of about 875 software and IT terms (languages, frameworks, databases, cloud services, AI models, acronyms) and can be combined with your own names: `--hotwords "software, Acme Cloud"`. Switches decoding to beam search with hotword boosting. On accented, jargon-heavy speech the `software` list cut WER from 24.5% to 18.8%, with no loss on LibriSpeech (3.13% to 3.04%). Other engines ignore it with a warning.
+- **Description**: Terms to bias sherpa-onnx Parakeet towards: comma-separated, or the path of a file with one term per line. Switches decoding to beam search with hotword boosting. On accented, jargon-heavy speech a list of about 875 software and IT terms cut WER from 24.5% to 18.8%, with no loss on LibriSpeech (3.13% to 3.04%). Other engines ignore it with a warning.
 
 #### `--end_of_sentence_detection_pause`
 

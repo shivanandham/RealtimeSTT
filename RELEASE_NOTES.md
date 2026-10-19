@@ -15,9 +15,9 @@
 - Added `--hotwords` to `stt-server` and `stt-runner`, and a `hotwords` engine
   option for `sherpa_onnx_parakeet` (list, comma-separated string or file).
   It biases Parakeet's beam search towards domain terms such as JSON, SQL or
-  Kubernetes. `--hotwords software` selects a bundled list of about 875
-  software and IT terms; on accented, jargon-heavy speech it cut WER from
-  24.5% to 18.8% and slightly improved LibriSpeech (3.13% to 3.04%).
+  Kubernetes. With about 875 software and IT terms, WER on accented,
+  jargon-heavy speech went from 24.5% to 18.8% and LibriSpeech slightly
+  improved (3.13% to 3.04%).
 - Added multi-channel transcription: `RealtimeSTT.SharedEngine` loads one
   model on one inference thread and serves many recorders (finals before
   partials); `RealtimeSTT.MultiChannelRecorder` runs several inputs with their

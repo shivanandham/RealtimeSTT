@@ -84,7 +84,7 @@ PROTOCOL = {
         "set_parameter": "Set a recorder setting: parameter (one of settable_parameters), value, channel (optional = all).",
         "get_info": "Reply with an info event.",
         "set_engine": "Switch a lane's model without restarting channels: lane 'final' or 'realtime', then engine and/or model, or default: true (the runner's choice for this device and language), or same_as_final: true (realtime only). Replies with engine events, or error.",
-        "set_hotwords": "Replace the hotwords (sherpa-onnx Parakeet): hotwords as a comma-separated string, list, file path or preset name ('software'); null clears. Affected models reload; replies with engine events.",
+        "set_hotwords": "Replace the hotwords (sherpa-onnx Parakeet): hotwords as a comma-separated string, list or file path (one term per line); null clears. Affected models reload; replies with engine events.",
         "set_initial_prompt": "Replace the Whisper-style initial_prompt: initial_prompt (string or null), lane 'final' or 'realtime' (default final; realtime only applies to a separate realtime model). Takes effect immediately; replies with an engine event.",
         "shutdown": "Stop everything and exit.",
     },

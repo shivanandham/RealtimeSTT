@@ -87,15 +87,15 @@ class EngineSwitcherTests(unittest.TestCase):
                              and e.get("status") != "loading")
 
     def test_startup_choices_defaults_and_active_block(self):
-        switcher, multi = self.start("--hotwords", "software")
+        switcher, multi = self.start("--hotwords", "JSON, SQL")
         active = switcher.active()
         self.assertEqual((active["transcription_engine"], active["model"]), ("sherpa_onnx_parakeet", SHERPA_V2))
         self.assertTrue(active["use_main_model_for_realtime"])
         self.assertEqual(active["choices"], {"final": {"mode": "default"}, "realtime": {"mode": "default"}})
         self.assertEqual(active["defaults"], {"final": {"engine": "sherpa_onnx_parakeet", "model": SHERPA_V2},
                                               "realtime": {"same_as_final": True}})
-        self.assertEqual((active["hotwords"], active["device"], active["loading"]), ("software", "cpu", {}))
-        self.assertEqual(multi.final_engine.config.engine_options, {"hotwords": "software"})
+        self.assertEqual((active["hotwords"], active["device"], active["loading"]), ("JSON, SQL", "cpu", {}))
+        self.assertEqual(multi.final_engine.config.engine_options, {"hotwords": "JSON, SQL"})
 
     def test_switching_final_reresolves_default_realtime_and_back(self):
         switcher, multi = self.start()
@@ -155,10 +155,10 @@ class EngineSwitcherTests(unittest.TestCase):
         reply = self.run_command(switcher, 3, command="set_engine", lane="final", engine="sherpa_onnx_parakeet",
                                  model=SHERPA_V2)
         self.assertEqual(reply["lanes"], ["final"])  # realtime stays the explicit tiny.en
-        reply = self.run_command(switcher, 4, command="set_hotwords", hotwords="software, Acme")
+        reply = self.run_command(switcher, 4, command="set_hotwords", hotwords="Kubernetes, Acme")
         self.assertEqual(reply["lanes"], ["final"])
-        self.assertEqual(multi.final_engine.config.engine_options, {"hotwords": "software, Acme"})
-        self.assertEqual(reply["active"]["hotwords"], "software, Acme")
+        self.assertEqual(multi.final_engine.config.engine_options, {"hotwords": "Kubernetes, Acme"})
+        self.assertEqual(reply["active"]["hotwords"], "Kubernetes, Acme")
         self.assertIs(multi.realtime_engine, realtime)
 
     def test_invalid_requests_are_rejected_immediately(self):

@@ -135,12 +135,6 @@ Parakeet has no text prompt, but sherpa-onnx can bias its beam search towards
 listed phrases. Pass them as `hotwords`: a list, a comma- or newline-separated
 string, or the path of a file with one phrase per line (`#` starts a comment).
 
-RealtimeSTT bundles a `software` preset
-([`RealtimeSTT/assets/hotwords/software.txt`](../../RealtimeSTT/assets/hotwords/software.txt)):
-about 875 languages, frameworks, databases, cloud services, dev tools, AI models
-and acronyms, from the Stack Overflow Developer Survey 2025 technology lists and
-common computing abbreviations. Use its name wherever a phrase is accepted, and
-add your own names next to it: `"software, Francium Tech, Chennai"`.
 
 ```python
 recorder = AudioToTextRecorder(
@@ -148,24 +142,24 @@ recorder = AudioToTextRecorder(
     model="sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
     device="cpu",
     transcription_engine_options={
-        "hotwords": ["software", "Acme Cloud", "Project Falcon"],
+        "hotwords": ["JSON", "SQL", "MVVM", "Kubernetes", "GitHub Actions", "pgvector"],
     },
 )
 ```
 
-`stt-server` and `stt-runner` take the same list as `--hotwords software`,
-`--hotwords "software, JSON, MVVM"` or `--hotwords terms.txt`.
+`stt-server` and `stt-runner` take the same list as `--hotwords "JSON, SQL, MVVM"`
+or `--hotwords terms.txt`.
 
 Setting hotwords switches decoding to `modified_beam_search` with
 `modeling_unit="bpe"`, and builds the BPE vocabulary from the bundle's
 `tokens.txt`. `hotwords_score` (default 1.0) sets the boost per token; 1.5
-added more false matches with the large preset, and 3.0 inserted listed words
+added more false matches with a large list, and 3.0 inserted listed words
 that were not spoken. Beam search also capitalizes some ordinary phrases
 ("Death Trauma"), which WER does not count. Hotwords do not apply to Moonshine.
 
 Keep lists to terms the model gets wrong: words it already spells right
 (microservices, embeddings) and names that are everyday words (Go, Spring,
-Zoom) only add false matches, so the preset leaves them out.
+Zoom) only add false matches, so leave them out.
 
 Measured on an Apple M4 (4 threads), 60 clips of one non-native English
 speaker reading programming and résumé sentences dense with acronyms and
@@ -176,12 +170,12 @@ product names (laptop microphone, about 6.5 s each, 196 listed terms):
 | Parakeet v3 int8 | 31.8% | 55% | 295 ms |
 | Parakeet v3 int8 + hotwords | 24.6% | 74% | 370 ms |
 | Parakeet v2 int8 | 24.5% | 62% | 296 ms |
-| Parakeet v2 int8 + `software` preset (no term from these sentences added) | 18.8% | 77% | 181 ms |
-| Parakeet v2 int8 + `software` + 23 résumé names | 19.1% | 80% | 188 ms |
+| Parakeet v2 int8 + about 875 general software terms (none taken from these sentences) | 18.8% | 77% | 181 ms |
+| Parakeet v2 int8 + those terms + 23 résumé names | 19.1% | 80% | 188 ms |
 | Parakeet v2 int8 + a list of exactly the terms read | 18% | 81-83% | 200-310 ms |
 | faster-whisper `small.en` int8 + term list as `initial_prompt` | 16.8% | 87% | 1964 ms |
 
-The `software` preset also helps where it only partly matches: on 75 minutes
+The general software list also helped where it only partly matched: on 75 minutes
 of technical sentences (danielrosehill/Tech-Sentences-For-ASR-Training) v2 WER
 went from 2.34% to 2.23% and listed terms recognized from 88% to 92%, and on
 the LibriSpeech sample, which has no software terms, from 3.13% to 3.04%.

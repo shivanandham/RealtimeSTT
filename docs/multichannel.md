@@ -43,8 +43,8 @@ and realtime work both run on `nvidia/parakeet-tdt-0.6b-v2` (one model, about
 2.7 GB of VRAM). On CPU with sherpa-onnx installed and `--lang en`, final
 and realtime work both run on sherpa-onnx Parakeet v2 int8 (about 480 MB,
 downloaded to `~/.cache/realtimestt/sherpa-onnx` on first start); add
-`--hotwords software` (bundled software and IT terms, optionally followed by
-your own: `"software, Acme Cloud"`) to bias it towards technical vocabulary. Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
+`--hotwords "JSON, SQL, Kubernetes"` (or a file with one term per line) to bias
+it towards your vocabulary. Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
 or `small` + `tiny.en` on CPU. `--engine`, `--rt-engine`, `-m`, `-r`,
 `--use_main_model_for_realtime` and `--no-realtime` override this.
 
@@ -102,7 +102,7 @@ Bare words `pause`, `resume`, `clear`, `shutdown` apply to all channels.
 | `set_parameter` | `parameter`, `value`, `channel` (optional) | Change a recorder setting at runtime; the allowed names are in `protocol.settable_parameters`. |
 | `get_info` | | Reply with an `info` event. |
 | `set_engine` | `lane` (`final` or `realtime`), then `engine` and/or `model`, or `default: true`, or `same_as_final: true` (realtime only) | Switch that lane's model without restarting channels; replies with `engine` events or an `error`. |
-| `set_hotwords` | `hotwords` (string, list, file path or preset name such as `software`; `null` clears) | Replace the sherpa-onnx Parakeet hotwords; affected models reload. |
+| `set_hotwords` | `hotwords` (comma-separated string, list or file path; `null` clears) | Replace the sherpa-onnx Parakeet hotwords; affected models reload. |
 | `set_initial_prompt` | `initial_prompt` (string or `null`), `lane` (default `final`) | Replace the Whisper-style prompt; applied without a reload. |
 | `shutdown` | | Stop everything and exit. Closing stdin does the same. |
 
