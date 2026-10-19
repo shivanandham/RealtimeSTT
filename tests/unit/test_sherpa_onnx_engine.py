@@ -1,4 +1,6 @@
+import io
 import os
+import tarfile
 import tempfile
 import time
 import unittest
@@ -13,6 +15,7 @@ from RealtimeSTT.transcription_engines import (
 )
 from RealtimeSTT.transcription_engines.parakeet_engine import ParakeetEngine
 from RealtimeSTT.transcription_engines.moonshine_engine import MoonshineEngine
+from RealtimeSTT.transcription_engines import sherpa_onnx_engine
 from RealtimeSTT.transcription_engines.sherpa_onnx_engine import (
     DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
     DEFAULT_SHERPA_ONNX_PARAKEET_MODEL,
@@ -296,6 +299,99 @@ class SherpaOnnxEngineTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(TranscriptionEngineError, "sherpa-onnx"):
                 SherpaOnnxParakeetBackend(config)
+
+    def test_default_bundle_is_downloaded_when_missing(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        cache = Path(temp_dir.name) / "cache"
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True)
+            for filename in PARAKEET_FILES:
+                (target_dir / filename).write_text("placeholder", encoding="utf-8")
+            return target_dir
+
+        with patch.object(sherpa_onnx_engine, "SHERPA_ONNX_DEFAULT_CACHE_DIR", cache), \
+                patch.object(sherpa_onnx_engine, "_download_bundle", side_effect=fake_download) as download:
+            SherpaOnnxParakeetBackend(
+                TranscriptionEngineConfig(model=DEFAULT_SHERPA_ONNX_PARAKEET_MODEL),
+                recognizer_cls=FakeSherpaRecognizer,
+            )
+            # The second load finds the cached bundle and does not download again.
+            SherpaOnnxParakeetBackend(
+                TranscriptionEngineConfig(model=DEFAULT_SHERPA_ONNX_PARAKEET_MODEL),
+                recognizer_cls=FakeSherpaRecognizer,
+            )
+
+        download.assert_called_once_with(
+            sherpa_onnx_engine.PARAKEET_DOWNLOAD_URL,
+            cache / DEFAULT_SHERPA_ONNX_PARAKEET_MODEL,
+        )
+        call = FakeSherpaRecognizer.transducer_calls[1]
+        self.assertEqual(call["encoder"], str(cache / DEFAULT_SHERPA_ONNX_PARAKEET_MODEL / "encoder.int8.onnx"))
+
+    def test_download_goes_under_download_root_and_can_be_disabled(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        root = Path(temp_dir.name)
+
+        with patch.object(sherpa_onnx_engine, "_download_bundle") as download:
+            with self.assertRaises(TranscriptionEngineError):
+                SherpaOnnxMoonshineBackend(
+                    TranscriptionEngineConfig(model=DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL, download_root=str(root),
+                                              engine_options={"auto_download_model": False}),
+                    recognizer_cls=FakeSherpaRecognizer,
+                )
+            download.assert_not_called()
+            # Custom directories are never downloaded.
+            with self.assertRaises(TranscriptionEngineError):
+                SherpaOnnxMoonshineBackend(
+                    TranscriptionEngineConfig(model=str(root / "custom-model")),
+                    recognizer_cls=FakeSherpaRecognizer,
+                )
+            download.assert_not_called()
+            download.side_effect = TranscriptionEngineError("offline")
+            with self.assertRaisesRegex(TranscriptionEngineError, "offline"):
+                SherpaOnnxMoonshineBackend(
+                    TranscriptionEngineConfig(model=DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL, download_root=str(root)),
+                    recognizer_cls=FakeSherpaRecognizer,
+                )
+        download.assert_called_once_with(
+            sherpa_onnx_engine.MOONSHINE_DOWNLOAD_URL,
+            root / DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
+        )
+
+    def test_download_bundle_extracts_archive_into_place(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w:bz2") as tar:
+            data = b"tokens"
+            info = tarfile.TarInfo("bundle/tokens.txt")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        archive.seek(0)
+        target = Path(temp_dir.name) / "models" / "bundle"
+
+        with patch.object(sherpa_onnx_engine, "urlopen", return_value=archive):
+            sherpa_onnx_engine._download_bundle("https://example.invalid/bundle.tar.bz2", target)
+
+        self.assertEqual((target / "tokens.txt").read_bytes(), b"tokens")
+        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), ["bundle"])
+
+    def test_default_thread_counts_follow_benchmarks(self):
+        parakeet_dir, parakeet_model = self.make_model_dir(PARAKEET_FILES)
+        moonshine_dir, moonshine_model = self.make_model_dir(MOONSHINE_FILES)
+        self.addCleanup(parakeet_dir.cleanup)
+        self.addCleanup(moonshine_dir.cleanup)
+
+        SherpaOnnxParakeetBackend(TranscriptionEngineConfig(model=str(parakeet_model)),
+                                  recognizer_cls=FakeSherpaRecognizer)
+        SherpaOnnxMoonshineBackend(TranscriptionEngineConfig(model=str(moonshine_model)),
+                                   recognizer_cls=FakeSherpaRecognizer)
+
+        self.assertEqual(FakeSherpaRecognizer.transducer_calls[0]["num_threads"], 4)
+        self.assertEqual(FakeSherpaRecognizer.moonshine_calls[0]["num_threads"], 1)
 
     def test_missing_model_file_reports_download_hint(self):
         temp_dir, model_dir = self.make_model_dir(PARAKEET_FILES[:-1])

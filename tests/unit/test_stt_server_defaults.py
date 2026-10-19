@@ -6,8 +6,16 @@ from RealtimeSTT_server import stt_server
 from RealtimeSTT_server.stt_server import apply_device_defaults
 
 
-with_nemo = patch("importlib.util.find_spec", return_value=object())
-no_nemo = patch("importlib.util.find_spec", return_value=None)
+def installed(*packages):
+    """
+    Patches find_spec so only the named optional packages appear importable.
+    """
+    return patch("importlib.util.find_spec", side_effect=lambda name: object() if name in packages else None)
+
+
+with_nemo = installed("nemo")
+no_nemo = installed()
+with_sherpa = installed("sherpa_onnx")
 
 
 def args(**overrides):
@@ -27,12 +35,40 @@ class SttServerDefaultsTests(unittest.TestCase):
         )
 
     def test_auto_falls_back_to_cpu_defaults(self):
-        with patch("torch.cuda.is_available", return_value=False):
+        with patch("torch.cuda.is_available", return_value=False), no_nemo:
             resolved = apply_device_defaults(args())
         self.assertEqual(
             (resolved.device, resolved.model, resolved.rt_model, resolved.compute_type),
             ("cpu", "small", "tiny.en", "int8"),
         )
+
+    def test_cpu_with_sherpa_uses_parakeet_final_and_moonshine_realtime(self):
+        with patch("torch.cuda.is_available", return_value=False), with_sherpa:
+            resolved = apply_device_defaults(args())
+        self.assertEqual(
+            (resolved.device, resolved.engine, resolved.model, resolved.rt_engine, resolved.rt_model,
+             resolved.use_main_model_for_realtime),
+            ("cpu", "sherpa_onnx_parakeet", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+             "sherpa_onnx_moonshine", "sherpa-onnx-moonshine-tiny-en-int8", False),
+        )
+
+    def test_sherpa_is_skipped_for_non_english_gpu_or_explicit_model(self):
+        with with_sherpa:
+            german = apply_device_defaults(args(device="cpu", lang="de"))
+            gpu = apply_device_defaults(args(device="cuda"))
+            explicit = apply_device_defaults(args(device="cpu", model="small.en"))
+        self.assertEqual((german.engine, german.model, german.rt_model), ("faster_whisper", "small", "tiny.en"))
+        self.assertEqual((gpu.engine, gpu.model), ("faster_whisper", "large-v3-turbo"))
+        self.assertEqual((explicit.engine, explicit.model, explicit.rt_engine), ("faster_whisper", "small.en", None))
+
+    def test_sherpa_final_keeps_realtime_overrides(self):
+        with with_sherpa:
+            shared = apply_device_defaults(args(device="cpu", use_main_model_for_realtime=True))
+            whisper_rt = apply_device_defaults(args(device="cpu", rt_model="base.en"))
+        self.assertEqual((shared.engine, shared.rt_engine, shared.use_main_model_for_realtime),
+                         ("sherpa_onnx_parakeet", None, True))
+        self.assertEqual((whisper_rt.engine, whisper_rt.rt_engine, whisper_rt.rt_model),
+                         ("sherpa_onnx_parakeet", "faster_whisper", "base.en"))
 
     def test_gpu_with_nemo_uses_parakeet_for_final_and_realtime(self):
         with patch("torch.cuda.is_available", return_value=True), with_nemo:
@@ -58,7 +94,8 @@ class SttServerDefaultsTests(unittest.TestCase):
         )
 
     def test_explicit_values_are_kept(self):
-        resolved = apply_device_defaults(args(device="cpu", model="medium.en", compute_type="float32"))
+        with with_sherpa:
+            resolved = apply_device_defaults(args(device="cpu", model="medium.en", compute_type="float32"))
         self.assertEqual(
             (resolved.device, resolved.model, resolved.rt_model, resolved.compute_type),
             ("cpu", "medium.en", "tiny.en", "float32"),

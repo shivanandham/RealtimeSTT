@@ -26,7 +26,13 @@ Aliases:
 
 ## Model Download Requirements
 
-RealtimeSTT does not download sherpa-onnx model bundles automatically. Download
+The two bundles below are downloaded and extracted automatically on first use
+when the model is given by its bundle name (as the `stt-server` / `stt-runner`
+CPU defaults do): into `download_root` when set, otherwise into
+`~/.cache/realtimestt/sherpa-onnx`. Set
+`transcription_engine_options={"auto_download_model": False}` to disable this.
+Parakeet defaults to 4 threads and Moonshine to 1, the fastest settings measured
+on an Apple M4. For other bundles, or offline machines, download
 the `.tar.bz2` archives from the sherpa-onnx ASR model releases, extract them,
 and pass the extracted directory as `model` or
 `transcription_engine_options["model_dir"]`.

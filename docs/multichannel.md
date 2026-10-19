@@ -40,7 +40,10 @@ sources this machine offers; the `ready` event carries the same lists.
 Model selection follows `stt-server`: `--device auto` picks CUDA when
 available, and on CUDA with NVIDIA NeMo installed and `--lang en` the final
 and realtime work both run on `nvidia/parakeet-tdt-0.6b-v2` (one model, about
-2.7 GB of VRAM). Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
+2.7 GB of VRAM). On CPU with sherpa-onnx installed and `--lang en`, finals
+run on sherpa-onnx Parakeet v3 int8 and partials on sherpa-onnx Moonshine tiny
+int8 (about 640 MB of models, downloaded to `~/.cache/realtimestt/sherpa-onnx`
+on first start). Otherwise faster-whisper `large-v3-turbo` + `small.en` on GPU
 or `small` + `tiny.en` on CPU. `--engine`, `--rt-engine`, `-m`, `-r`,
 `--use_main_model_for_realtime` and `--no-realtime` override this.
 

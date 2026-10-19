@@ -38,6 +38,20 @@
   NVIDIA NeMo is installed and the language is English, otherwise
   `large-v3-turbo` (final) and `small.en` (realtime) in float16. CPU defaults
   stay `small` / `tiny.en` / int8.
+- On CPU with sherpa-onnx installed (`pip install "realtimestt[sherpa-onnx]"`)
+  and language `en`, `stt-server` and `stt-runner` now default to sherpa-onnx
+  Parakeet v3 int8 for final transcription and sherpa-onnx Moonshine tiny int8
+  for realtime. On an Apple M4 that is 3.9% WER at about 250 ms per final
+  (faster-whisper `small.en`: 6.0% at about 2.1 s) and about 20 ms per partial
+  under 5 s (`tiny.en`: about 150 ms). Without sherpa-onnx, or for other
+  languages, the CPU defaults stay faster-whisper `small` / `tiny.en` / int8.
+- The sherpa-onnx engines download and extract the Parakeet v3 int8 and
+  Moonshine tiny int8 bundles on first use (into `download_root` or
+  `~/.cache/realtimestt/sherpa-onnx`; disable with `auto_download_model`).
+  sherpa-onnx Parakeet now defaults to 4 threads instead of 1.
+- `model_benchmarks.json` adds Apple M4 CPU measurements (entries carry a
+  `hardware` field). On macOS the pywhispercpp wheel runs `whisper_cpp` on the
+  Metal GPU even with `device="cpu"`; both are listed.
 - faster-whisper loads cuBLAS/cuDNN from `nvidia-*` pip wheels on CUDA, so
   `LD_LIBRARY_PATH` is no longer needed for them.
 

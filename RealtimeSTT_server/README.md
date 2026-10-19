@@ -61,19 +61,19 @@ You can configure the server using the following command-line arguments:
 #### `-m`, `--model`
 
 - **Type**: `str`
-- **Default**: `'nvidia/parakeet-tdt-0.6b-v2'` on GPU when NVIDIA NeMo is installed (`pip install "realtimestt[parakeet]"`) and the language is English; otherwise `'large-v3-turbo'` on GPU and `'small'` on CPU
+- **Default**: `'nvidia/parakeet-tdt-0.6b-v2'` on GPU when NVIDIA NeMo is installed (`pip install "realtimestt[parakeet]"`) and the language is English; otherwise `'large-v3-turbo'` on GPU. On CPU, `'sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8'` when sherpa-onnx is installed (`pip install "realtimestt[sherpa-onnx]"`) and the language is English (downloaded to `~/.cache/realtimestt/sherpa-onnx`, or `--root`, on first start), otherwise `'small'`
 - **Description**: Path to the Speech-to-Text (STT) model or specify a model size. Options include: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, `large-v3-turbo`, or any HuggingFace CTranslate2 STT model.
 
 #### `--engine`, `--transcription_engine`
 
 - **Type**: `str`
-- **Default**: `parakeet` in the Parakeet case above (which then also serves realtime transcription with the same loaded model), otherwise `faster_whisper`
+- **Default**: `parakeet` in the GPU Parakeet case above (which then also serves realtime transcription with the same loaded model), `sherpa_onnx_parakeet` in the CPU sherpa-onnx case, otherwise `faster_whisper`
 - **Description**: Transcription engine for final transcription, e.g. `faster_whisper`, `parakeet`, `qwen3_asr`, `granite_speech`, `whistle`. See `model_benchmarks.json` for measured latency and accuracy.
 
 #### `--rt-engine`, `--realtime_transcription_engine`
 
 - **Type**: `str`
-- **Default**: follows `--engine`; `faster_whisper` when `--engine` is not Whisper and the main model is not used for realtime
+- **Default**: `sherpa_onnx_moonshine` in the CPU sherpa-onnx case; otherwise follows `--engine`, or `faster_whisper` when `--engine` is not Whisper and the main model is not used for realtime
 - **Description**: Transcription engine for real-time transcription.
 
 #### `--device`
@@ -91,7 +91,7 @@ You can configure the server using the following command-line arguments:
 #### `-r`, `--rt-model`, `--realtime_model_type`
 
 - **Type**: `str`
-- **Default**: `'small.en'` on GPU, `'tiny.en'` on CPU (unused when Parakeet serves realtime)
+- **Default**: `'small.en'` on GPU (unused when Parakeet serves realtime); on CPU `'sherpa-onnx-moonshine-tiny-en-int8'` in the sherpa-onnx case, otherwise `'tiny.en'`
 - **Description**: Model size for real-time transcription. Options are the same as for `--model`. This is used only if real-time transcription is enabled (`--enable_realtime_transcription`).
 
 #### `-l`, `--lang`, `--language`

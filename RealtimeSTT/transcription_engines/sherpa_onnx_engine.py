@@ -2,9 +2,14 @@
 Adapts sherpa-onnx offline recognizers to the engine interface.
 """
 
+import logging
+import shutil
+import tarfile
+import tempfile
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
+from urllib.request import urlopen
 
 from .base import (
     BaseTranscriptionEngine,
@@ -13,6 +18,9 @@ from .base import (
     TranscriptionResult,
 )
 
+logger = logging.getLogger("realtimestt")
+
+SHERPA_ONNX_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "realtimestt" / "sherpa-onnx"
 
 DEFAULT_SHERPA_ONNX_PARAKEET_MODEL = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL = "sherpa-onnx-moonshine-tiny-en-int8"
@@ -33,6 +41,42 @@ KNOWN_MODEL_DIRS = {
     "UsefulSensors/moonshine-streaming-tiny": DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
     DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL: DEFAULT_SHERPA_ONNX_MOONSHINE_MODEL,
 }
+
+
+def _download_bundle(url, target_dir):
+    """
+    Downloads a sherpa-onnx .tar.bz2 model bundle and extracts it to target_dir.
+    """
+
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    archive_path = target_dir.with_name("%s.tar.bz2.part" % target_dir.name)
+    logger.info("Downloading sherpa-onnx model %s to %s", url, target_dir)
+    try:
+        with urlopen(url) as response, archive_path.open("wb") as output:
+            shutil.copyfileobj(response, output)
+        # Extract next to the target and move the bundle directory into place,
+        # so an interrupted run never leaves a half-filled model directory.
+        with tempfile.TemporaryDirectory(dir=target_dir.parent) as extract_dir:
+            with tarfile.open(archive_path, "r:bz2") as archive:
+                archive.extractall(extract_dir, filter="data")
+            extracted = Path(extract_dir) / target_dir.name
+            if not extracted.is_dir():
+                raise TranscriptionEngineError(
+                    "Archive %s does not contain a %s directory" % (url, target_dir.name)
+                )
+            if not target_dir.is_dir():  # Another process may have finished first.
+                extracted.replace(target_dir)
+    except Exception as exc:
+        raise TranscriptionEngineError(
+            "Could not download sherpa-onnx model from %s to %s: %s"
+            % (url, target_dir, exc)
+        ) from exc
+    finally:
+        try:
+            archive_path.unlink()
+        except OSError:
+            pass
+    return target_dir
 
 
 @dataclass
@@ -123,6 +167,7 @@ class SherpaOnnxOfflineBackend:
     family = "sherpa_onnx"
     default_model_dir = ""
     download_url = ""
+    default_num_threads = 1
 
     def __init__(self, config, recognizer_cls=None):
         """
@@ -160,10 +205,18 @@ class SherpaOnnxOfflineBackend:
             if self.config.download_root:
                 candidates.append(Path(self.config.download_root).expanduser() / model_path)
             candidates.append(model_path)
+            if not self.config.download_root:
+                candidates.append(SHERPA_ONNX_DEFAULT_CACHE_DIR / model_path)
 
         for candidate in candidates:
             if candidate.is_dir():
                 return candidate
+
+        # This backend's own bundle is fetched from the sherpa-onnx release on first use.
+        auto_download = _bool_option(self.engine_options, "auto_download_model", True)
+        if auto_download and self.download_url and str(model_value) == self.default_model_dir:
+            root = Path(self.config.download_root).expanduser() if self.config.download_root else SHERPA_ONNX_DEFAULT_CACHE_DIR
+            return _download_bundle(self.download_url, root / self.default_model_dir)
 
         return candidates[0]
 
@@ -200,7 +253,7 @@ class SherpaOnnxOfflineBackend:
             "num_threads": int(
                 self.engine_options.get(
                     "num_threads",
-                    model_options.get("num_threads", 1),
+                    model_options.get("num_threads", self.default_num_threads),
                 )
             ),
             "decoding_method": self.engine_options.get(
@@ -251,6 +304,9 @@ class SherpaOnnxParakeetBackend(SherpaOnnxOfflineBackend):
     family = "sherpa_onnx_parakeet"
     default_model_dir = DEFAULT_SHERPA_ONNX_PARAKEET_MODEL
     download_url = PARAKEET_DOWNLOAD_URL
+    # Measured on an Apple M4: 4 threads cut final latency from ~334 ms to ~252 ms.
+    # Moonshine tiny is fastest on one thread.
+    default_num_threads = 4
 
     def _create_recognizer(self, recognizer_cls):
         """

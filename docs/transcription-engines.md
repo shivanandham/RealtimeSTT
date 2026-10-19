@@ -14,7 +14,7 @@ The compatibility default is `faster_whisper`.
 | Default local GPU/CPU Whisper path | `faster_whisper` | Install with `RealtimeSTT[faster-whisper]`; mature, supports common Whisper model names and CTranslate2 models. |
 | CPU-only experiments with small Whisper models | `whisper_cpp` | Uses whisper.cpp through `pywhispercpp`; good for low-dependency CPU testing. |
 | Compatibility with OpenAI's local Whisper package | `openai_whisper` | Uses the original `openai-whisper` Python package. |
-| English CPU server with manually downloaded ONNX models | `sherpa_onnx_moonshine` | Offline CPU INT8 path with predictable local model files. |
+| English CPU server with local ONNX models | `sherpa_onnx_moonshine` | Offline CPU INT8 path with predictable local model files. |
 | CPU Parakeet without NeMo runtime | `sherpa_onnx_parakeet` | Offline CPU INT8 Parakeet through sherpa-onnx. |
 | Kroko/Banafo `.data` streaming models | `kroko_onnx` | Optional Kroko-ONNX runtime with Community or licensed Pro models and realtime streaming previews. |
 | NVIDIA Parakeet on Linux/WSL2 | `parakeet` | Uses NVIDIA NeMo ASR for the Parakeet checkpoint. |
@@ -119,7 +119,7 @@ meaningful for one engine may be ignored or invalid for another.
 | `parakeet` NeMo | Yes, through NeMo model loading. | NeMo cache/model options may be passed in `transcription_engine_options`. |
 | `omnilingual_asr` | Yes, through Omnilingual/fairseq2/Hugging Face cache paths in Linux or WSL2 with Python 3.11.x. | Pass an Omnilingual model card such as `omniASR_CTC_1B_v2`; RealtimeSTT does not move or delete downloaded assets. Unknown v2 cards are a dependency mismatch, not a signal to fall back to older non-v2 cards. |
 | `whistle` | Yes, the native engine and base weights through `cactus-needle`. | Tuned `.cact` weights can be passed as `model` or the `weights` option. |
-| `sherpa_onnx_*` | No. | Download and extract the sherpa-onnx model bundle, then pass the extracted directory. |
+| `sherpa_onnx_*` | Yes, for the Parakeet v3 int8 and Moonshine tiny int8 bundles given by name, into `download_root` or `~/.cache/realtimestt/sherpa-onnx`. | Other bundles: download and extract, then pass the extracted directory. `auto_download_model: False` disables the download. |
 | `kroko_onnx` | Yes, for known public Community `.data` files when enabled. | Pro/private models need an existing `.data` path, direct URL, or explicit repo/token options. |
 
 Every optional engine page documents its install command, model behavior,

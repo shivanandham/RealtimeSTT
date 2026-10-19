@@ -215,7 +215,7 @@ Install only the engine stack you plan to use:
 | `whisper_cpp` | `python -m pip install "RealtimeSTT[whisper-cpp]"` | `pywhispercpp` can download known ggml models; local paths are also supported. |
 | `openai_whisper` | `python -m pip install "RealtimeSTT[openai-whisper]"` | Downloads OpenAI Whisper models automatically to its cache or `download_root`. |
 | `moonshine` | `python -m pip install "RealtimeSTT[moonshine]"` | Downloads Hugging Face model files automatically. English-only in this adapter. |
-| `sherpa_onnx_*` | `python -m pip install "RealtimeSTT[sherpa-onnx]"` | Model bundles must be downloaded and extracted manually. |
+| `sherpa_onnx_*` | `python -m pip install "RealtimeSTT[sherpa-onnx]"` | The default Parakeet v3 and Moonshine tiny bundles download on first use; other bundles must be downloaded and extracted manually. |
 | `parakeet` | `python -m pip install -U "RealtimeSTT[parakeet]"` | NeMo downloads from the configured model id/cache. Best on Linux or WSL2. |
 | [`omnilingual_asr`](engines/omnilingual-asr.md) | `python -m pip install "RealtimeSTT[omnilingual]"` | Meta Omnilingual ASR downloads through its Linux/WSL fairseq2 cache. Use Python 3.11.x. The extra requires `omnilingual-asr>=0.2.0` for v2 model cards and constrains matching `torch`/`torchaudio` builds. Native Windows installs are not supported because `fairseq2n` has no Windows wheel. |
 | `granite_speech` | `python -m pip install "RealtimeSTT[granite]"` | Downloads Hugging Face model files automatically. |
