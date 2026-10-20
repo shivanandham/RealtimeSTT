@@ -1,9 +1,9 @@
 """
 Several audio channels transcribed by one shared model set.
 
-Each channel is an AudioToTextRecorder with its own input (a microphone index
-or a PulseAudio source such as an output's monitor) and its own VAD and
-recording state. Final and realtime inference go through SharedEngine lanes,
+Each channel is an AudioToTextRecorder with its own input (a microphone index,
+a PulseAudio source such as an output's monitor, or the raw PCM stdout of a
+helper process) and its own VAD and recording state. Final and realtime inference go through SharedEngine lanes,
 so the models are loaded once per process no matter how many channels run.
 """
 
@@ -11,8 +11,12 @@ import itertools
 import logging
 import os
 import queue
+import shlex
+import shutil
+import subprocess
 import threading
 import time
+from collections import deque
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -31,6 +35,9 @@ _FINAL_PRIORITY = 0
 _REALTIME_PRIORITY = 1
 _DRAIN_PRIORITY = 2
 _STOP = object()
+
+# Raw PCM sample formats a command channel can read: numpy dtype per format.
+PCM_FORMATS = {"s16le": "<i2", "f32le": "<f4"}
 
 
 def _now_ms():
@@ -251,28 +258,202 @@ class _SwitchableLane:
 @dataclass
 class ChannelSpec:
     """
-    One audio source: a PortAudio input index and/or a PulseAudio source.
+    One audio source: a PortAudio input index and/or a PulseAudio source, or a command.
 
-    recorder_kwargs override the MultiChannelRecorder's shared recorder
-    settings for this channel only (for example a different silero_sensitivity
-    for a monitor source that has no room noise).
+    command is a command line (split with shlex, run without a shell) whose
+    stdout carries raw little-endian PCM in pcm_format (s16le or f32le) at
+    pcm_rate Hz with pcm_channels interleaved channels; the channel owns the
+    process. recorder_kwargs override the MultiChannelRecorder's shared
+    recorder settings for this channel only (for example a different
+    silero_sensitivity for a monitor source that has no room noise).
     """
 
     name: str
     input_device_index: Optional[int] = None
     pulse_source: Optional[str] = None
     recorder_kwargs: Dict[str, Any] = field(default_factory=dict)
+    command: Optional[str] = None
+    pcm_rate: int = SAMPLE_RATE
+    pcm_channels: int = 1
+    pcm_format: str = "s16le"
+
+    def validate(self):
+        """
+        Raises ValueError for a spec that cannot start.
+        """
+        if self.command is None:
+            return
+        if self.input_device_index is not None or self.pulse_source is not None:
+            raise ValueError(f"channel {self.name!r}: command cannot be combined with device or pulse_source")
+        if self.pcm_format not in PCM_FORMATS:
+            raise ValueError(f"channel {self.name!r}: pcm_format must be one of {', '.join(PCM_FORMATS)}")
+        if not (isinstance(self.pcm_rate, int) and self.pcm_rate > 0
+                and isinstance(self.pcm_channels, int) and self.pcm_channels > 0):
+            raise ValueError(f"channel {self.name!r}: pcm_rate and pcm_channels must be positive integers")
+        argv = shlex.split(self.command)
+        if not argv:
+            raise ValueError(f"channel {self.name!r}: empty command")
+        if shutil.which(argv[0]) is None:
+            raise ValueError(f"channel {self.name!r}: command not found: {argv[0]}")
 
     def to_dict(self):
         """
         Returns the spec as plain data.
         """
-        return {
+        data = {
             "name": self.name,
             "input_device_index": self.input_device_index,
             "pulse_source": self.pulse_source,
             "recorder_kwargs": dict(self.recorder_kwargs),
+            "command": self.command,
         }
+        if self.command is not None:
+            data.update(pcm_rate=self.pcm_rate, pcm_channels=self.pcm_channels, pcm_format=self.pcm_format)
+        return data
+
+
+def pcm_to_int16(data, pcm_format="s16le", channels=1, rate=SAMPLE_RATE):
+    """
+    Converts whole frames of raw PCM to 16 kHz mono int16 bytes.
+    """
+    if pcm_format == "s16le" and channels == 1 and rate == SAMPLE_RATE:
+        return bytes(data)
+    import numpy as np
+
+    samples = np.frombuffer(data, dtype=PCM_FORMATS[pcm_format]).astype(np.float32)
+    if pcm_format == "f32le":
+        samples *= 32767.0
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
+    if rate != SAMPLE_RATE:
+        from math import gcd
+        from scipy.signal import resample_poly
+
+        divisor = gcd(SAMPLE_RATE, rate)
+        samples = resample_poly(samples, SAMPLE_RATE // divisor, rate // divisor)
+    return np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+
+
+class _CommandSource:
+    """
+    Runs a channel's audio command and feeds its stdout PCM to the recorder.
+
+    stdout is always read, also while paused (the audio is dropped then), so
+    the pipe never fills up and blocks the process. stderr lines are logged
+    and passed to on_message("warning", ...); an exit that stop() did not
+    cause is reported as on_message("error", ...) with the last stderr lines.
+    """
+
+    CHUNK_SECONDS = 0.05
+    STDERR_LINES = 20
+
+    def __init__(self, spec, feed, on_message):
+        """
+        Starts the process and its stdout and stderr reader threads.
+        """
+        self.spec = spec
+        self.feed = feed
+        self.on_message = on_message
+        self.paused = False
+        self.stopping = False
+        self.stderr_tail = deque(maxlen=self.STDERR_LINES)
+        self.process = subprocess.Popen(
+            shlex.split(spec.command), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0,
+        )
+        self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True,
+                                               name=f"RealtimeSTT-command-{spec.name}-stderr")
+        self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True,
+                                               name=f"RealtimeSTT-command-{spec.name}")
+        self._stderr_thread.start()
+        self._stdout_thread.start()
+
+    def info(self):
+        """
+        Describes the source in the shape of input_device_info, plus source and command.
+        """
+        return {
+            "source": "command",
+            "command": self.spec.command,
+            "name": self.spec.command,
+            "pid": self.process.pid,
+            "sample_rate": self.spec.pcm_rate,
+            "channels": self.spec.pcm_channels,
+            "format": self.spec.pcm_format,
+            "exit_code": self.process.poll(),
+        }
+
+    def _read_stdout(self):
+        """
+        Feeds whole frames to the recorder until stdout closes, then reports the exit.
+        """
+        spec = self.spec
+        frame = spec.pcm_channels * (2 if spec.pcm_format == "s16le" else 4)
+        size = max(frame, int(spec.pcm_rate * self.CHUNK_SECONDS) * frame)
+        fd = self.process.stdout.fileno()
+        pending = b""
+        while True:
+            try:
+                data = os.read(fd, size)
+            except OSError:
+                break
+            if not data:
+                break
+            if self.paused:
+                pending = b""
+                continue
+            data = pending + data
+            whole = len(data) - len(data) % frame
+            pending = data[whole:]
+            if not whole:
+                continue
+            try:
+                self.feed(pcm_to_int16(data[:whole], spec.pcm_format, spec.pcm_channels, spec.pcm_rate))
+            except Exception:
+                logger.exception("Channel %s: feeding command audio failed", spec.name)
+        code = self.process.wait()
+        if self.stopping:
+            return
+        self._stderr_thread.join(timeout=1)
+        tail = list(self.stderr_tail)
+        message = f"audio command exited with code {code}"
+        if tail:
+            message += f": {tail[-1]}"
+        self.on_message("error", message=message, exit_code=code, stderr=tail)
+
+    def _read_stderr(self):
+        """
+        Logs and forwards the process's stderr lines.
+        """
+        for raw in iter(self.process.stderr.readline, b""):
+            line = raw.decode("utf-8", "replace").rstrip()
+            if not line:
+                continue
+            self.stderr_tail.append(line)
+            logger.info("Channel %s command: %s", self.spec.name, line)
+            if not self.stopping:
+                self.on_message("warning", message=line, stderr=True)
+
+    def stop(self, timeout=2.0):
+        """
+        Terminates the process (kills it after timeout) and joins the readers.
+        """
+        self.stopping = True
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+        for thread in (self._stdout_thread, self._stderr_thread):
+            if thread is not threading.current_thread():
+                thread.join(timeout)
+        for pipe in (self.process.stdout, self.process.stderr):
+            try:
+                pipe.close()
+            except OSError:
+                pass
 
 
 class _Channel:
@@ -286,6 +467,7 @@ class _Channel:
         """
         self.spec = spec
         self.recorder = None
+        self.source = None
         self.thread = None
         self.utterance_id = 0
         self.closing = False
@@ -352,8 +534,10 @@ class MultiChannelRecorder:
         Starts a channel, replacing a running one with the same name.
 
         Only that channel's capture and VAD restart; the shared engines keep
-        their loaded models, so switching inputs takes about a second.
+        their loaded models, so switching inputs takes about a second. An
+        invalid spec raises ValueError and leaves the running channel alone.
         """
+        spec.validate()
         with self._lock:
             old = self._channels.pop(spec.name, None)
         if old is not None:
@@ -363,7 +547,7 @@ class MultiChannelRecorder:
         kwargs = dict(self.recorder_kwargs)
         kwargs.update(spec.recorder_kwargs)
         kwargs.update(
-            use_microphone=True,
+            use_microphone=spec.command is None,
             spinner=False,
             input_device_index=spec.input_device_index,
             pulse_source=spec.pulse_source,
@@ -388,6 +572,16 @@ class MultiChannelRecorder:
             kwargs["enable_realtime_transcription"] = False
 
         channel.recorder = self._make_recorder(**kwargs)
+        if spec.command is not None:
+            try:
+                channel.source = _CommandSource(
+                    spec, channel.recorder.feed_audio,
+                    lambda type_, **payload: self._emit(channel, type_, **payload),
+                )
+            except Exception:
+                channel.closing = True
+                channel.recorder.shutdown()
+                raise
         channel.thread = threading.Thread(
             target=self._text_loop,
             args=(channel,),
@@ -414,6 +608,8 @@ class MultiChannelRecorder:
         Shuts a channel's recorder down and waits for its text loop.
         """
         channel.closing = True
+        if channel.source is not None:
+            channel.source.stop()
         try:
             channel.recorder.shutdown()
         except Exception:
@@ -470,10 +666,19 @@ class MultiChannelRecorder:
         while True:
             with self._lock:
                 channels = list(self._channels.values())
-            inputs = {ch.spec.name: ch.recorder.input_device_info for ch in channels}
+            inputs = {ch.spec.name: self._input_info(ch) for ch in channels}
             if all(inputs.values()) or time.monotonic() >= deadline:
                 return inputs
             time.sleep(0.05)
+
+    @staticmethod
+    def _input_info(channel):
+        """
+        Returns what the channel listens to: the opened device, or its command source.
+        """
+        if channel.source is not None:
+            return channel.source.info()
+        return channel.recorder.input_device_info
 
     # --- per-channel controls ---
 
@@ -491,14 +696,20 @@ class MultiChannelRecorder:
         Stops reading audio on the channel(s) without unloading anything.
         """
         for ch in self._select(channel):
-            ch.recorder.set_microphone(False)
+            if ch.source is not None:
+                ch.source.paused = True
+            else:
+                ch.recorder.set_microphone(False)
 
     def resume(self, channel=None):
         """
         Resumes reading audio on the channel(s).
         """
         for ch in self._select(channel):
-            ch.recorder.set_microphone(True)
+            if ch.source is not None:
+                ch.source.paused = False
+            else:
+                ch.recorder.set_microphone(True)
 
     def clear(self, channel=None):
         """
@@ -524,8 +735,8 @@ class MultiChannelRecorder:
             "channels": {
                 ch.spec.name: {
                     **ch.spec.to_dict(),
-                    "input_device": ch.recorder.input_device_info,
-                    "paused": not bool(ch.recorder.use_microphone.value),
+                    "input_device": self._input_info(ch),
+                    "paused": ch.source.paused if ch.source is not None else not bool(ch.recorder.use_microphone.value),
                     "recording": bool(getattr(ch.recorder, "is_recording", False)),
                     "utterance_id": ch.utterance_id,
                 }
@@ -617,4 +828,4 @@ class MultiChannelRecorder:
             )
 
 
-__all__ = ["ChannelSpec", "MultiChannelRecorder", "SharedEngine"]
+__all__ = ["ChannelSpec", "MultiChannelRecorder", "SharedEngine", "pcm_to_int16"]

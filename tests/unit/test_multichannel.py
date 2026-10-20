@@ -1,10 +1,13 @@
 import queue
+import shlex
+import struct
+import sys
 import threading
 import time
 import unittest
 from types import SimpleNamespace
 
-from RealtimeSTT.multichannel import ChannelSpec, MultiChannelRecorder, SharedEngine
+from RealtimeSTT.multichannel import ChannelSpec, MultiChannelRecorder, SharedEngine, pcm_to_int16
 from RealtimeSTT.transcription_engines import TranscriptionEngineConfig, TranscriptionResult
 
 
@@ -100,6 +103,9 @@ class FakeRecorder:
 
     def clear_audio_queue(self):
         self.calls.append(("clear",))
+
+    def feed_audio(self, chunk):
+        self.calls.append(("feed", chunk))
 
     def shutdown(self):
         self.is_shut_down = True
@@ -257,6 +263,103 @@ class MultiChannelRecorderTests(unittest.TestCase):
         self.assertFalse(other._thread.is_alive())
         self.assertFalse(self.shared._thread.is_alive())
         self.assertEqual(multi.channel_names(), [])
+
+
+def python_command(code):
+    """
+    Returns a command line running code with this interpreter.
+    """
+    return shlex.join([sys.executable, "-c", code])
+
+
+class CommandChannelTests(unittest.TestCase):
+    def setUp(self):
+        self.shared = make_shared(FakeEngine())
+        self.addCleanup(self.shared.close)
+        self.events = []
+        self.recorders = []
+
+    def factory(self, **kwargs):
+        recorder = FakeRecorder(**kwargs)
+        self.recorders.append(recorder)
+        return recorder
+
+    def make(self, *specs):
+        multi = MultiChannelRecorder(list(specs), on_event=self.events.append, final_engine=self.shared,
+                                     realtime_engine=self.shared, recorder_factory=self.factory)
+        self.addCleanup(multi.shutdown)
+        return multi
+
+    def wait_until(self, predicate, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail(f"condition not met; events: {self.events}")
+
+    def fed(self, recorder):
+        return b"".join(chunk for call, *rest in recorder.calls if call == "feed" for chunk in rest)
+
+    def test_pcm_conversion(self):
+        mono = struct.pack("<4h", 1, -2, 300, -32768)
+        self.assertEqual(pcm_to_int16(mono), mono)
+        stereo_float = struct.pack("<4f", 0.5, 0.5, -1.0, 0.0)
+        self.assertEqual(struct.unpack("<2h", pcm_to_int16(stereo_float, "f32le", channels=2)), (16383, -16383))
+        self.assertEqual(len(pcm_to_int16(b"\0\0" * 480, rate=48000)), 2 * 160)
+
+    def test_command_stdout_is_fed_and_exit_is_reported(self):
+        code = ("import sys; sys.stdout.buffer.write(bytes(range(1, 11))); sys.stdout.flush();"
+                "sys.stderr.write('tap: started\\nno permission\\n'); sys.exit(3)")
+        multi = self.make(ChannelSpec("them", command=python_command(code)))
+        recorder = self.recorders[0]
+        self.assertFalse(recorder.kwargs["use_microphone"])
+        error = None
+        self.wait_until(lambda: any(e["type"] == "error" for e in self.events))
+        error = next(e for e in self.events if e["type"] == "error")
+        self.assertEqual((error["channel"], error["exit_code"]), ("them", 3))
+        self.assertEqual(error["stderr"], ["tap: started", "no permission"])
+        self.assertIn("exited with code 3: no permission", error["message"])
+        warnings = [e["message"] for e in self.events if e["type"] == "warning"]
+        self.assertEqual(warnings, ["tap: started", "no permission"])
+        self.assertEqual(self.fed(recorder), bytes(range(1, 11)))
+        info = multi.info()["channels"]["them"]
+        self.assertEqual((info["input_device"]["source"], info["input_device"]["exit_code"]), ("command", 3))
+        self.assertEqual(info["command"], python_command(code))
+
+    def test_pause_drops_audio_and_remove_stops_the_process(self):
+        code = "import sys, time\nwhile True:\n    sys.stdout.buffer.write(b'\\1\\0' * 160); sys.stdout.flush(); time.sleep(0.01)"
+        multi = self.make(ChannelSpec("them", command=python_command(code)))
+        recorder = self.recorders[0]
+        source = multi._channels["them"].source
+        self.wait_until(lambda: self.fed(recorder))
+        self.assertEqual(multi.wait_for_inputs(1)["them"]["pid"], source.process.pid)
+        multi.pause("them")
+        self.assertTrue(multi.info()["channels"]["them"]["paused"])
+        time.sleep(0.05)
+        before = len(self.fed(recorder))
+        time.sleep(0.15)
+        self.assertEqual(len(self.fed(recorder)), before)
+        self.assertNotIn(("mic", False), recorder.calls)
+        multi.resume("them")
+        self.wait_until(lambda: len(self.fed(recorder)) > before)
+        self.assertTrue(multi.remove_channel("them"))
+        self.assertIsNotNone(source.process.poll())
+        self.assertTrue(recorder.is_shut_down)
+        self.assertFalse(any(e["type"] == "error" for e in self.events), "a requested stop is not an error")
+
+    def test_invalid_command_specs_keep_the_running_channel(self):
+        multi = self.make(ChannelSpec("them", input_device_index=4))
+        for spec, message in (
+            (ChannelSpec("them", command="definitely-not-a-command-xyz"), "not found"),
+            (ChannelSpec("them", command=python_command("pass"), pcm_format="u8"), "pcm_format"),
+            (ChannelSpec("them", command=python_command("pass"), pcm_rate=0), "positive"),
+            (ChannelSpec("them", 4, command=python_command("pass")), "cannot be combined"),
+        ):
+            with self.assertRaisesRegex(ValueError, message):
+                multi.set_channel(spec)
+        self.assertEqual(len(self.recorders), 1)
+        self.assertFalse(self.recorders[0].is_shut_down)
 
 
 if __name__ == "__main__":

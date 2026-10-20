@@ -4,6 +4,13 @@
 
 ### Added
 
+- `stt-runner` channels can read raw PCM from a helper process's stdout:
+  `--channel name=them "command=audiotap --exclude-pid 123"` (or
+  `command_line` in `set_channel`), with `pcm_rate`, `pcm_channels` and
+  `pcm_format` (`s16le` or `f32le`). The runner owns the process, forwards its
+  stderr as `warning` events and reports an unexpected exit as an `error`
+  with the exit code and last stderr lines. Use it for capture that PortAudio
+  cannot open, such as a macOS Core Audio process tap.
 - `stt-runner` can switch models at runtime: `set_engine` (per lane, with
   `default` and `same_as_final`), `set_hotwords` and `set_initial_prompt`
   stdin commands, replied to with `engine` events. Channels keep running and

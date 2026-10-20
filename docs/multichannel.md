@@ -32,10 +32,35 @@ Each `--channel` takes `KEY=VALUE` tokens:
 | `name` | Channel name carried on every event (required). |
 | `device` | PortAudio input: an index, or a name substring such as `USB PnP` (case-insensitive). Prefer names; indices change between processes. |
 | `pulse_source` | PulseAudio/PipeWire source: a microphone (`alsa_input....`), an output's monitor (`....monitor`), or `@DEFAULT_SOURCE@` / `@DEFAULT_MONITOR@`. Linux only. |
+| `command` | A command whose stdout is raw little-endian PCM, for example a macOS Core Audio process-tap helper. Split with `shlex` and run without a shell; pass `command=...` as one argument. Not combined with `device` / `pulse_source`. See [Command channels](#command-channels). |
+| `pcm_rate`, `pcm_channels`, `pcm_format` | Format of a `command` channel's PCM: rate in Hz (default 16000), interleaved channels (default 1, downmixed to mono), `s16le` (default) or `f32le`. 16 kHz mono `s16le` is fed as-is; anything else is converted. |
 | anything else | A per-channel recorder setting, for example `silero_sensitivity=0.2`. |
 
 `stt-runner --list-devices` prints the PortAudio inputs and the PulseAudio
 sources this machine offers; the `ready` event carries the same lists.
+
+### Command channels
+
+```bash
+stt-runner --channel name=me device="MacBook Pro Microphone" \
+           --channel name=them "command=/path/to/audiotap --exclude-pid 123"
+```
+
+The runner starts the command when the channel starts and owns it:
+`remove_channel`, replacing the channel with `set_channel`, and `shutdown`
+terminate it (killed after 2 s). Its stdout is read continuously, also while
+the channel is paused (the audio is dropped then), so the pipe never fills up
+and blocks the helper. Each stderr line is logged and sent as a `warning` with
+`stderr: true`. If the command exits on its own, an `error` event reports
+`channel`, `exit_code` and `stderr` (its last 20 lines); the channel stays
+listed until it is replaced or removed. A command that is not on `PATH`, an
+unknown `pcm_format`, or `command` combined with `device` is rejected
+(`set_channel` keeps the running channel).
+
+On `ready`, `info` and `channel` events a command channel's `input_device` is
+`{"source": "command", "command", "name" (= command), "pid", "sample_rate",
+"channels", "format", "exit_code"}` (`exit_code` is `null` while it runs).
+Clients can detect support through `protocol.channel_sources.command`.
 
 Model selection follows `stt-server`: `--device auto` picks CUDA when
 available, and on CUDA with NVIDIA NeMo installed and `--lang en` the final
@@ -66,7 +91,7 @@ channel; the partials and the final of one utterance share it) and `t_ms`
 
 | `type` | When | Extra fields |
 | --- | --- | --- |
-| `ready` | Listening. | `channels` (with `input_device` actually opened), `input_devices`, `pulse_sources`, `engines`, `active`, `benchmark`, `models`, `host`, `settings`, `protocol` |
+| `ready` | Listening. | `channels` (with `input_device` actually opened, or the command source), `input_devices`, `pulse_sources`, `engines`, `active`, `benchmark`, `models`, `host`, `settings`, `protocol` |
 | `speech_start` | Voice detected; new `utterance_id`. | `speech_start_ms` |
 | `realtime` | Partial text, re-transcribed from the utterance start. | `text` |
 | `realtime_stabilized` | Partial whose prefix is unlikely to change. | `text` |
@@ -79,8 +104,8 @@ channel; the partials and the final of one utterance share it) and `t_ms`
 | `engine` | Progress of `set_engine`, `set_hotwords`, `set_initial_prompt`: `status` `loading`, then `ready`. | `command`, `status`, `lanes` (lanes whose engine changed), `active` |
 | `info` | Reply to `get_info`; same shape as `ready`. | |
 | `ack` | Command accepted. | `command`, `channel` |
-| `warning` | Non-fatal problem, e.g. a requested device could not be opened and the default was used. | `channel`, `message` |
-| `error` | Failed command, or a fatal startup error. | `message` |
+| `warning` | Non-fatal problem, e.g. a requested device could not be opened and the default was used, or a stderr line of a command channel. | `channel`, `message`, `stderr` (command channels) |
+| `error` | Failed command, a fatal startup error, or a command channel's process exiting. | `message`; `channel`, `exit_code`, `stderr` for an exited command |
 
 `speech_paused` arrives at the start of the pause, roughly
 `post_speech_silence_duration` before `fullSentence`; a consumer that wants to
@@ -95,9 +120,9 @@ Bare words `pause`, `resume`, `clear`, `shutdown` apply to all channels.
 
 | Command | Fields | Effect |
 | --- | --- | --- |
-| `pause` / `resume` | `channel` (optional) | Stop or resume reading audio. Models stay loaded. |
+| `pause` / `resume` | `channel` (optional) | Stop or resume reading audio. Models stay loaded. A command channel's process keeps running; its audio is dropped while paused. |
 | `clear` | `channel` (optional) | Drop queued audio. |
-| `set_channel` | `channel`, `device` and/or `pulse_source`, `recorder_kwargs` | Start or replace a channel. Only that channel's capture and VAD restart (well under a second); replies with a `channel` event. |
+| `set_channel` | `channel`, `device` and/or `pulse_source`, or `command_line` with `pcm_rate` / `pcm_channels` / `pcm_format`, `recorder_kwargs` | Start or replace a channel. An invalid channel is rejected and the running one kept. Only that channel's capture and VAD restart (well under a second); replies with a `channel` event. |
 | `remove_channel` | `channel` | Stop a channel. |
 | `set_parameter` | `parameter`, `value`, `channel` (optional) | Change a recorder setting at runtime; the allowed names are in `protocol.settable_parameters`. |
 | `get_info` | | Reply with an `info` event. |

@@ -77,6 +77,19 @@ class ChannelParsingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             channel_from_command({"command": "set_channel"})
 
+    def test_command_channels(self):
+        spec = parse_channel(["name=them", "command=/opt/audiotap --exclude-pid 123", "pcm_rate=48000",
+                              "pcm_channels=2", "pcm_format=f32le", "silero_sensitivity=0.2"])
+        self.assertEqual(spec, ChannelSpec("them", recorder_kwargs={"silero_sensitivity": 0.2},
+                                           command="/opt/audiotap --exclude-pid 123", pcm_rate=48000,
+                                           pcm_channels=2, pcm_format="f32le"))
+        self.assertEqual(parse_channel(["name=them", "command=123"]).command, "123")
+        spec = channel_from_command({"command": "set_channel", "channel": "them", "command_line": "audiotap",
+                                     "pcm_rate": 24000})
+        self.assertEqual(spec, ChannelSpec("them", command="audiotap", pcm_rate=24000))
+        self.assertIn("command_line", PROTOCOL["stdin"]["set_channel"])
+        self.assertIn("command", PROTOCOL["channel_sources"])
+
 
 class SilenceTimingTests(unittest.TestCase):
     def test_pause_follows_punctuation(self):

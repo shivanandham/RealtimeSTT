@@ -15,7 +15,7 @@ where utterances start and end.
    model set). See [configuration.md](configuration.md) and
    [multichannel.md](multichannel.md).
 2. **`stt-runner`** (child process, JSON lines):
-   `stt-runner --channel name=<n> [device=<index|name substring>] [pulse_source=<src>] ...`,
+   `stt-runner --channel name=<n> [device=<index|name substring>] [pulse_source=<src>] [command=<cmdline>] ...`,
    or from a checkout `PYTHONPATH=<repo> <venv python> -m RealtimeSTT_server.stt_runner`.
    Runs any number of channels on one shared model set. See
    [multichannel.md](multichannel.md).
@@ -31,7 +31,10 @@ where utterances start and end.
 - Each channel is an independent audio input with its own VAD and utterance
   state: a microphone (PortAudio index or case-insensitive name substring) or
   a PulseAudio/PipeWire source (`pulse_source`: a microphone source, an
-  output's monitor, `@DEFAULT_SOURCE@`, `@DEFAULT_MONITOR@`; Linux only).
+  output's monitor, `@DEFAULT_SOURCE@`, `@DEFAULT_MONITOR@`; Linux only), or
+  the raw PCM stdout of a helper process the runner starts and owns
+  (`command`, with `pcm_rate` / `pcm_channels` / `pcm_format` `s16le|f32le`;
+  for example a macOS process-tap helper).
 - All channels share one loaded model for final and realtime work, so N
   channels cost one model's memory plus VAD. Final requests are served before
   partials.
@@ -59,7 +62,7 @@ where utterances start and end.
   | Command | Effect |
   | --- | --- |
   | `pause`, `resume`, `clear` | Per channel or all; models stay loaded. |
-  | `set_channel` | Start or replace a channel (`device` and/or `pulse_source`, `recorder_kwargs`). Only that channel restarts (about 0.5 s); replies with `channel`. |
+  | `set_channel` | Start or replace a channel (`device` and/or `pulse_source`, or `command_line` + `pcm_*`, `recorder_kwargs`). Only that channel restarts (about 0.5 s); replies with `channel`. |
   | `remove_channel` | Stop a channel. |
   | `set_parameter` | Change a recorder setting at runtime (names in `protocol.settable_parameters`, e.g. `post_speech_silence_duration`, `language`). |
   | `get_info` | Same payload as `ready`. |

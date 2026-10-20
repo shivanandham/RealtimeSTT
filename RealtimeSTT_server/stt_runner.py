@@ -6,6 +6,7 @@ is one JSON event; commands arrive on stdin as JSON (or a bare word such as
 "pause"). Library output goes to stderr, so stdout stays machine-readable.
 
     stt-runner --channel name=me device=4 --channel name=them pulse_source=@DEFAULT_MONITOR@
+    stt-runner --channel name=me --channel name=them "command=audiotap --exclude-pid 123"
 
 All channels share one loaded model set (see RealtimeSTT.multichannel).
 """
@@ -58,7 +59,7 @@ PROTOCOL = {
     "stdout": "One JSON object per line. Lines that are not JSON are library noise and can be ignored.",
     "common_fields": {"channel": "channel name", "utterance_id": "per channel; partials and the final of one utterance share it", "t_ms": "wall clock, ms"},
     "events": {
-        "ready": "Runner is listening. Carries channels (with the input device actually opened), input_devices (PortAudio inputs; pick by name), pulse_sources (PulseAudio/PipeWire mics and monitors for pulse_source), engines, active (resolved models, choices, defaults, loading), benchmark, models (benchmarked models with installed and measured_on_this_host), host, settings and this protocol.",
+        "ready": "Runner is listening. Carries channels (with the input device actually opened, or {source: 'command', command, pid, sample_rate, channels, format, exit_code} for a command channel), input_devices (PortAudio inputs; pick by name), pulse_sources (PulseAudio/PipeWire mics and monitors for pulse_source), engines, active (resolved models, choices, defaults, loading), benchmark, models (benchmarked models with installed and measured_on_this_host), host, settings and this protocol.",
         "speech_start": "Voice detected; a new utterance_id begins. speech_start_ms.",
         "realtime": "Partial text of the current utterance (text). Re-transcribed from the utterance start on each update.",
         "realtime_stabilized": "Partial text whose prefix is unlikely to change (text).",
@@ -67,19 +68,19 @@ PROTOCOL = {
         "speech_end": "Utterance audio complete; final transcription queued. speech_start_ms, speech_end_ms.",
         "transcription_start": "Final transcription running (audio_s = utterance length).",
         "fullSentence": "Final text (text, speech_start_ms, speech_end_ms, latency_ms since speech_end).",
-        "channel": "Reply to set_channel: channel, input_device.",
+        "channel": "Reply to set_channel: channel, input_device (for a command channel {source: 'command', command, pid, ...}).",
         "engine": "Progress of set_engine / set_hotwords / set_initial_prompt: status 'loading' (new models loading; the old ones keep transcribing) then 'ready', with command, lanes (lanes whose engine changed) and active.",
         "info": "Reply to get_info.",
         "ack": "Command accepted (command, channel?).",
-        "warning": "Non-fatal problem (channel?, message).",
-        "error": "Failed command or fatal startup problem (message, request_id?; command and active for a failed set_engine / set_hotwords / set_initial_prompt, whose old engines keep running).",
+        "warning": "Non-fatal problem (channel?, message). A command channel's stderr lines arrive as warnings with stderr: true.",
+        "error": "Failed command or fatal startup problem (message, request_id?; command and active for a failed set_engine / set_hotwords / set_initial_prompt, whose old engines keep running). A command channel whose process exited on its own reports channel, message, exit_code and stderr (its last lines); the channel stays until set_channel or remove_channel.",
     },
     "stdin": {
         "format": "One JSON object per line: {\"command\": ..., \"channel\": optional, \"request_id\": optional, echoed back}. Bare words pause/resume/clear/shutdown apply to all channels.",
-        "pause": "Stop reading audio (channel or all). Models stay loaded.",
+        "pause": "Stop reading audio (channel or all). Models stay loaded. A command channel keeps running and its audio is dropped.",
         "resume": "Resume reading audio (channel or all).",
         "clear": "Drop queued audio (channel or all).",
-        "set_channel": "Start or replace a channel: channel, device (input index or name substring) and/or pulse_source, recorder_kwargs {}. Only that channel restarts; replies with a channel event.",
+        "set_channel": "Start or replace a channel: channel, device (input index or name substring) and/or pulse_source, or command_line (a command whose stdout is raw PCM; with pcm_rate, pcm_channels, pcm_format), recorder_kwargs {}. Only that channel restarts; replies with a channel event. An invalid channel is rejected and the running one kept.",
         "remove_channel": "Stop a channel: channel.",
         "set_parameter": "Set a recorder setting: parameter (one of settable_parameters), value, channel (optional = all).",
         "get_info": "Reply with an info event.",
@@ -89,6 +90,13 @@ PROTOCOL = {
         "shutdown": "Stop everything and exit.",
     },
     "settable_parameters": list(SETTABLE_PARAMETERS),
+    "channel_sources": {
+        "device": "PortAudio input: device=<index or name substring>.",
+        "pulse_source": "PulseAudio/PipeWire source (Linux): pulse_source=<source>.",
+        "command": "Raw little-endian PCM from a command's stdout: command=<command line> on --channel, command_line in set_channel. "
+                   "Split with shlex and run without a shell; the runner owns the process and stops it on remove_channel, replacement and shutdown. "
+                   "pcm_rate (default 16000), pcm_channels (default 1, interleaved, downmixed), pcm_format s16le (default) or f32le.",
+    },
 }
 
 
@@ -112,23 +120,34 @@ def parse_channel(tokens):
     Builds a ChannelSpec from --channel KEY=VALUE tokens.
 
     Keys: name (required), device (PortAudio input index), pulse_source
-    (PulseAudio source such as @DEFAULT_MONITOR@); anything else is a
-    per-channel recorder setting.
+    (PulseAudio source such as @DEFAULT_MONITOR@), command (a command line
+    printing raw PCM) with pcm_rate, pcm_channels, pcm_format; anything else
+    is a per-channel recorder setting.
     """
     values = {}
     for token in tokens:
         if "=" not in token:
             raise argparse.ArgumentTypeError(f"--channel expects KEY=VALUE, got {token!r}")
         key, value = token.split("=", 1)
-        values[key.strip()] = coerce(value.strip())
+        key = key.strip()
+        values[key] = value.strip() if key == "command" else coerce(value.strip())
     if "name" not in values:
         raise argparse.ArgumentTypeError("--channel needs name=<channel name>")
     return ChannelSpec(
         name=str(values.pop("name")),
         input_device_index=values.pop("device", None),
         pulse_source=values.pop("pulse_source", None),
+        command=values.pop("command", None),
+        **_pcm_options(values),
         recorder_kwargs=values,
     )
+
+
+def _pcm_options(values):
+    """
+    Pops the pcm_rate / pcm_channels / pcm_format keys that were given.
+    """
+    return {key: values.pop(key) for key in ("pcm_rate", "pcm_channels", "pcm_format") if values.get(key) is not None}
 
 
 def channel_from_command(command):
@@ -141,6 +160,8 @@ def channel_from_command(command):
         name=str(command["channel"]),
         input_device_index=command.get("device"),
         pulse_source=command.get("pulse_source"),
+        command=command.get("command_line"),
+        **_pcm_options(dict(command)),
         recorder_kwargs=dict(command.get("recorder_kwargs") or {}),
     )
 
@@ -155,7 +176,8 @@ def build_parser():
     )
     parser.add_argument("--channel", action="append", nargs="+", default=[], metavar="KEY=VALUE",
                         help="A channel: name=<name> plus device=<input index or name substring> and/or "
-                             "pulse_source=<source>. Repeat for more channels. "
+                             "pulse_source=<source>, or command=<command line> whose stdout is raw PCM "
+                             "(pcm_rate=16000, pcm_channels=1, pcm_format=s16le|f32le). Repeat for more channels. "
                              "Default: one channel 'default' on the default microphone.")
     parser.add_argument("--list-devices", dest="list_devices", action="store_true",
                         help="Print the PortAudio input devices and PulseAudio sources as JSON and exit.")
@@ -699,7 +721,9 @@ def main(argv=None):
 
     try:
         channels = [parse_channel(tokens) for tokens in args.channel] or [ChannelSpec("default")]
-    except argparse.ArgumentTypeError as exc:
+        for spec in channels:
+            spec.validate()
+    except (argparse.ArgumentTypeError, ValueError) as exc:
         write({"type": "error", "message": str(exc)})
         return 2
 
