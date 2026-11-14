@@ -24,6 +24,7 @@ mono int16 PCM.
 | `RealtimeSTT_server/stt_runner.py` | `stt-runner`: multi-channel JSON-lines child process for other programs (stdout events, stdin commands). Protocol in `docs/multichannel.md`. |
 | `RealtimeSTT/core/model_defaults.py` | Device-based engine/model defaults shared by `stt-server` and `stt-runner`. |
 | `RealtimeSTT_server/model_benchmarks.json` | Measured latency and WER per engine/model, served by `get_info`. |
+| `docs/field-measurements.md` | Raw numbers from running `stt-runner` inside free-cluely: end-of-utterance latency per silence setting, prompt/hotword vocabulary results, echo cancellation, the macOS semaphore leak. |
 | `example_fastapi_server/` | Multi-session FastAPI server (one recorder per session, shared models). |
 | `tests/unit/` | Fast unit tests, no models or audio hardware needed. |
 | `tests/asr_engine_benchmark.py` | Engine latency/WER benchmark that produces the benchmarks JSON. |
